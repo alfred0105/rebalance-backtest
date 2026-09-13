@@ -39,7 +39,7 @@ def evaluation_dates(index: pd.DatetimeIndex, schedule: str | None) -> set[pd.Ti
         periods = index.to_period(schedule)
     except ValueError as exc:
         raise ValueError(
-            f"Unsupported schedule {schedule!r}. Try 'W-FRI' or 'M'."
+            f"Unsupported schedule {schedule!r}. Try 'D', 'W-FRI', or 'M'."
         ) from exc
     last_rows = marker.groupby(periods).tail(1)
     return set(pd.DatetimeIndex(last_rows.index))
@@ -50,6 +50,28 @@ def _turnover(current: pd.Series, target: pd.Series) -> float:
     target_cash = 1.0 - float(target.sum())
     traded = float((target - current).abs().sum()) + abs(target_cash - current_cash)
     return 0.5 * traded
+
+
+def _prepare_target(
+    strategy: Strategy,
+    price_history: pd.DataFrame,
+    current_weights: pd.Series,
+    columns: pd.Index,
+) -> pd.Series | None:
+    """Create a pending order only when the strategy actually wants a trade.
+
+    This matters for daily monitoring: returning current_weights means "do
+    nothing". Scheduling that no-op target for the next session would otherwise
+    rebalance away one day of natural market drift and create phantom trades.
+    """
+    target = strategy.target_weights(price_history, current_weights.copy())
+    target = target.reindex(columns).fillna(0.0).astype(float)
+    if (target < -1e-12).any() or target.sum() > 1.0 + 1e-9:
+        raise ValueError("Target weights must be long-only and sum to <= 1.")
+    target = target.clip(lower=0.0)
+    if _turnover(current_weights, target) <= 1e-12:
+        return None
+    return target
 
 
 def run_backtest(
@@ -99,7 +121,7 @@ def run_backtest(
     pending_target: pd.Series | None = None
 
     if prices.index[0] in eval_dates:
-        pending_target = strategy.target_weights(prices.iloc[:1], weights.copy())
+        pending_target = _prepare_target(strategy, prices.iloc[:1], weights, columns)
 
     for i in range(1, len(prices)):
         date = prices.index[i]
@@ -139,7 +161,12 @@ def run_backtest(
             pending_target = None
 
         if date in eval_dates:
-            pending_target = strategy.target_weights(prices.iloc[: i + 1], weights.copy())
+            pending_target = _prepare_target(
+                strategy,
+                prices.iloc[: i + 1],
+                weights,
+                columns,
+            )
 
         net_return = equity / prev_equity - 1.0
         equity_records.append((date, equity))
