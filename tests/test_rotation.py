@@ -81,6 +81,27 @@ def test_emergency_brake_can_cut_thirty_five_percentage_points_in_one_day():
     assert np.isclose(nxt[st.stock_tickers].sum(), 0.45)
 
 
+def test_normal_rebalance_moves_only_to_band_edge():
+    st = _strategy()
+    ideal = pd.Series(
+        {"MKT": 0.40, "A": 0.20, "B": 0.20, "C": 0.0, "BOND": 0.0, "SAFE": 0.20}
+    )
+    cur = _current(MKT=0.365, A=0.1825, B=0.1825, SAFE=0.27)
+    nxt = st._apply_staged_transition(ideal, cur, emergency=False)
+    assert np.isclose(nxt[st.stock_tickers].sum(), 0.75)
+    assert np.isclose(nxt["SAFE"], 0.25)
+
+
+def test_tiny_whole_portfolio_trade_is_suppressed():
+    st = _strategy()
+    ideal = pd.Series(
+        {"MKT": 0.40, "A": 0.20, "B": 0.20, "C": 0.0, "BOND": 0.0, "SAFE": 0.20}
+    )
+    cur = _current(MKT=0.3675, A=0.18375, B=0.18375, SAFE=0.265)
+    nxt = st._apply_staged_transition(ideal, cur, emergency=False)
+    pd.testing.assert_series_equal(nxt, cur.astype(float))
+
+
 def test_sector_selection_only_refreshes_when_month_changes():
     st = _strategy()
     jan_scores = pd.Series({"MKT": 0.5, "A": 1.0, "B": 0.8, "C": 0.1, "BOND": 0.0, "SAFE": 0.0})
