@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rebalance-backtest"
-version = "0.4.0"
-description = "Backtest daily-monitored Korean ETF stock-bond-safe rotation with continuous risk allocation and crash braking."
+version = "0.5.0"
+description = "Backtest daily-monitored Korean ETF rotation with sparse band-edge rebalancing and crash braking."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
