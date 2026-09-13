@@ -117,7 +117,7 @@ def main() -> None:
     curve_df.to_csv(out / "equity_curves.csv")
 
     ax = curve_df.plot(figsize=(11, 6), logy=True)
-    ax.set_title("Korean ETF adaptive rotation v0.5 - daily monitor, sparse trading")
+    ax.set_title("Korean ETF adaptive rotation v0.6 - daily monitor, sparse trading")
     ax.set_ylabel("Portfolio value (log scale)")
     ax.set_xlabel("")
     ax.grid(True, alpha=0.25)
@@ -204,11 +204,16 @@ def main() -> None:
     report_text = "\n".join(report_lines) + "\n"
     (out / "latest_report.txt").write_text(report_text, encoding="utf-8")
 
+    runs = Path("runs")
+    runs.mkdir(parents=True, exist_ok=True)
+    (runs / "latest_report.txt").write_text(report_text, encoding="utf-8")
+
     with pd.option_context("display.max_columns", None, "display.width", 180):
         print("\n" + report_text)
 
     print(f"Saved results to: {out.resolve()}")
     print(f"Single-file report: {(out / 'latest_report.txt').resolve()}")
+    print(f"GitHub-readable report: {(runs / 'latest_report.txt').resolve()}")
 
 
 if __name__ == "__main__":
