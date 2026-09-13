@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 from rebalance_backtest.rotation import AdaptiveRotationStrategy
@@ -21,57 +22,74 @@ def _current(**kwargs) -> pd.Series:
     return s
 
 
-def test_hot_sector_cannot_force_stock_regime_when_market_breadth_is_weak():
+def test_stock_target_changes_continuously_with_market_score():
     st = _strategy()
-    scores = pd.Series(
-        {"MKT": -0.30, "A": 2.00, "B": -0.50, "C": -0.40, "BOND": -0.20, "SAFE": 0.0}
-    )
-    regime, market_score, _, _ = st._choose_regime(scores, _current(SAFE=1.0))
-    assert market_score < 0
-    assert regime == "SAFE"
+    assert np.isclose(st._stock_target_from_score(-0.30), 0.00)
+    assert np.isclose(st._stock_target_from_score(0.00), 0.35)
+    assert np.isclose(st._stock_target_from_score(0.30), 0.75)
+    assert np.isclose(st._stock_target_from_score(0.60), 0.90)
 
 
-def test_stock_hysteresis_requires_more_to_enter_than_to_stay():
+def test_bond_only_uses_residual_when_bond_score_is_positive():
     st = _strategy()
-    scores = pd.Series(
-        {"MKT": 0.05, "A": 0.06, "B": 0.04, "C": 0.03, "BOND": -0.20, "SAFE": 0.0}
-    )
-    assert st._choose_regime(
-        scores, _current(MKT=0.30, A=0.275, B=0.275, SAFE=0.15)
-    )[0] == "STOCK"
-    assert st._choose_regime(scores, _current(SAFE=1.0))[0] == "SAFE"
+    stock, bond, safe, brake = st._allocation_targets(0.30, 0.30, 0.02)
+    assert not brake
+    assert np.isclose(stock, 0.75)
+    assert np.isclose(bond, (1.0 - stock) * 0.90)
+    assert np.isclose(stock + bond + safe, 1.0)
+
+    stock2, bond2, safe2, _ = st._allocation_targets(0.30, -0.10, 0.02)
+    assert np.isclose(stock2, 0.75)
+    assert np.isclose(bond2, 0.0)
+    assert np.isclose(safe2, 0.25)
 
 
-def test_risk_on_adds_only_five_percentage_points_per_week():
+def test_crash_brake_caps_stock_target():
     st = _strategy()
-    scores = pd.Series(
-        {"MKT": 1.0, "A": 0.9, "B": 0.8, "C": 0.1, "BOND": -0.2, "SAFE": 0.0}
-    )
-    ideal = st._ideal_target("STOCK", scores, _current().index)
-    nxt = st._apply_staged_transition(ideal, _current(SAFE=1.0), "STOCK")
-    assert abs(nxt[st.stock_tickers].sum() - 0.05) < 1e-9
-    assert abs(nxt["SAFE"] - 0.95) < 1e-9
+    stock, _, _, brake = st._allocation_targets(0.60, -0.10, -0.10)
+    assert brake
+    assert np.isclose(stock, st.brake_stock_cap)
 
 
-def test_risk_off_cuts_fifteen_percentage_points_per_week():
+def test_daily_risk_on_adds_five_percentage_points():
     st = _strategy()
-    scores = pd.Series(
-        {"MKT": -1.0, "A": -0.8, "B": -0.7, "C": -0.6, "BOND": -0.2, "SAFE": 0.0}
+    ideal = pd.Series(
+        {"MKT": 0.40, "A": 0.20, "B": 0.20, "C": 0.0, "BOND": 0.0, "SAFE": 0.20}
     )
-    ideal = st._ideal_target("SAFE", scores, _current().index)
-    cur = _current(MKT=0.30, A=0.275, B=0.275, SAFE=0.15)
-    nxt = st._apply_staged_transition(ideal, cur, "SAFE")
-    assert abs(nxt[st.stock_tickers].sum() - 0.70) < 1e-9
-    assert abs(nxt["SAFE"] - 0.30) < 1e-9
+    nxt = st._apply_staged_transition(ideal, _current(SAFE=1.0), emergency=False)
+    assert np.isclose(nxt[st.stock_tickers].sum(), 0.05)
+    assert np.isclose(nxt["SAFE"], 0.95)
 
 
-def test_stock_ideal_has_core_and_sector_caps():
+def test_normal_daily_risk_off_cuts_twenty_percentage_points():
     st = _strategy()
-    scores = pd.Series(
-        {"MKT": 0.7, "A": 1.0, "B": 0.8, "C": 0.2, "BOND": -0.1, "SAFE": 0.0}
+    ideal = pd.Series(
+        {"MKT": 0.10, "A": 0.05, "B": 0.05, "C": 0.0, "BOND": 0.0, "SAFE": 0.80}
     )
-    ideal = st._ideal_target("STOCK", scores, _current().index)
-    assert abs(ideal["MKT"] - 0.30) < 1e-9
-    assert ideal[["A", "B", "C"]].max() <= 0.30 + 1e-9
-    assert abs(ideal[st.stock_tickers].sum() - 0.85) < 1e-9
-    assert abs(ideal["SAFE"] - 0.15) < 1e-9
+    cur = _current(MKT=0.40, A=0.20, B=0.20, SAFE=0.20)
+    nxt = st._apply_staged_transition(ideal, cur, emergency=False)
+    assert np.isclose(nxt[st.stock_tickers].sum(), 0.60)
+
+
+def test_emergency_brake_can_cut_thirty_five_percentage_points_in_one_day():
+    st = _strategy()
+    ideal = pd.Series(
+        {"MKT": 0.15, "A": 0.10, "B": 0.10, "C": 0.0, "BOND": 0.0, "SAFE": 0.65}
+    )
+    cur = _current(MKT=0.40, A=0.20, B=0.20, SAFE=0.20)
+    nxt = st._apply_staged_transition(ideal, cur, emergency=True)
+    assert np.isclose(nxt[st.stock_tickers].sum(), 0.45)
+
+
+def test_sector_selection_only_refreshes_when_month_changes():
+    st = _strategy()
+    jan_scores = pd.Series({"MKT": 0.5, "A": 1.0, "B": 0.8, "C": 0.1, "BOND": 0.0, "SAFE": 0.0})
+    jan = st._refresh_monthly_sectors(jan_scores, pd.Timestamp("2026-01-05"))
+    assert jan == ("A", "B")
+
+    changed_scores = pd.Series({"MKT": 0.5, "A": 0.1, "B": 0.2, "C": 2.0, "BOND": 0.0, "SAFE": 0.0})
+    still_jan = st._refresh_monthly_sectors(changed_scores, pd.Timestamp("2026-01-20"))
+    assert still_jan == ("A", "B")
+
+    feb = st._refresh_monthly_sectors(changed_scores, pd.Timestamp("2026-02-02"))
+    assert feb == ("C", "B")
