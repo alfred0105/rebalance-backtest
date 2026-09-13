@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rebalance-backtest"
-version = "0.1.0"
+version = "0.2.0"
 description = "Backtest weekly momentum-tilted rebalancing with asymmetric entry/exit and transaction costs."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,6 +20,7 @@ dev = ["pytest>=8.0"]
 
 [project.scripts]
 rebalance-backtest = "rebalance_backtest.cli:main"
+rebalance-rotation = "rebalance_backtest.rotation_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
