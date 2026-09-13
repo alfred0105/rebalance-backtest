@@ -37,7 +37,20 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--safe", choices=SAFE_CHOICES, default="shortbond")
     p.add_argument("--initial-capital", type=float, default=10_000_000.0)
     p.add_argument("--transaction-cost-bps", type=float, default=5.0)
-    p.add_argument("--no-trade-band", type=float, default=0.05)
+    p.add_argument(
+        "--rebalance-band",
+        "--no-trade-band",
+        dest="no_trade_band",
+        type=float,
+        default=0.05,
+        help="Allowed percentage-point deviation before a trade is triggered (default: 0.05).",
+    )
+    p.add_argument(
+        "--max-weekly-shift",
+        type=float,
+        default=0.10,
+        help="Maximum percentage-point change per risky ETF at one weekly evaluation (default: 0.10).",
+    )
     p.add_argument("--threshold", type=float, default=0.05)
     p.add_argument("--switch-margin", type=float, default=0.10)
     p.add_argument("--output", default="results_rotation")
@@ -65,6 +78,7 @@ def main() -> None:
         bond_tickers=list(KR_BONDS),
         safe_ticker=safe_ticker,
         no_trade_band=args.no_trade_band,
+        max_weekly_shift=args.max_weekly_shift,
         absolute_threshold=args.threshold,
         switch_margin=args.switch_margin,
     )
@@ -114,7 +128,7 @@ def main() -> None:
     plt.close()
 
     current = results["adaptive_rotation"].weights.iloc[-1].drop(labels=["CASH"], errors="ignore")
-    recommendation = rotation.recommend(prices, current, apply_no_trade_band=False)
+    recommendation = rotation.recommend(prices, current, apply_no_trade_band=True)
 
     score_rows = []
     for ticker, score in recommendation.scores.sort_values(ascending=False).items():
@@ -152,9 +166,13 @@ def main() -> None:
             f"{recommendation.regime} | stock score={recommendation.stock_score:.3f} "
             f"bond score={recommendation.bond_score:.3f} | safe={safe_name}"
         )
+        print(
+            f"Rebalance band={args.no_trade_band:.1%} | "
+            f"max weekly shift={args.max_weekly_shift:.1%}"
+        )
         print("\n=== Latest scores ===")
         print(scores_df.to_string(index=False, formatters={"score": "{:.3f}".format}))
-        print("\n=== Suggested allocation ===")
+        print("\n=== Next-step suggested allocation ===")
         shown = target_df.copy()
         shown["target_weight"] = shown["target_weight"].map(lambda x: f"{x:.1%}")
         print(shown.to_string(index=False))
