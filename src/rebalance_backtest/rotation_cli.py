@@ -37,6 +37,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--initial-capital", type=float, default=10_000_000.0)
     p.add_argument("--transaction-cost-bps", type=float, default=5.0)
     p.add_argument("--rebalance-band", type=float, default=0.05)
+    p.add_argument("--min-trade-turnover", type=float, default=0.02)
     p.add_argument("--risk-on-step", type=float, default=0.05)
     p.add_argument("--risk-off-step", type=float, default=0.20)
     p.add_argument("--emergency-step", type=float, default=0.35)
@@ -70,6 +71,7 @@ def main() -> None:
         safe_ticker=safe_ticker,
         market_ticker=MARKET_TICKER,
         no_trade_band=args.rebalance_band,
+        min_trade_turnover=args.min_trade_turnover,
         risk_on_step=args.risk_on_step,
         risk_off_step=args.risk_off_step,
         emergency_step=args.emergency_step,
@@ -115,7 +117,7 @@ def main() -> None:
     curve_df.to_csv(out / "equity_curves.csv")
 
     ax = curve_df.plot(figsize=(11, 6), logy=True)
-    ax.set_title("Korean ETF adaptive rotation v0.4 - daily monitoring")
+    ax.set_title("Korean ETF adaptive rotation v0.5 - daily monitor, sparse trading")
     ax.set_ylabel("Portfolio value (log scale)")
     ax.set_xlabel("")
     ax.grid(True, alpha=0.25)
@@ -170,8 +172,9 @@ def main() -> None:
             f"bond={recommendation.bond_target:.1%} safe={recommendation.safe_target:.1%}"
         )
         print(
-            f"Daily monitor | band={args.rebalance_band:.1%} | risk-on +{args.risk_on_step:.1%}p/day | "
-            f"risk-off -{args.risk_off_step:.1%}p/day | emergency -{args.emergency_step:.1%}p/day"
+            f"Daily monitor | band={args.rebalance_band:.1%} | min trade={args.min_trade_turnover:.1%} turnover | "
+            f"risk-on +{args.risk_on_step:.1%}p/day | risk-off -{args.risk_off_step:.1%}p/day | "
+            f"emergency -{args.emergency_step:.1%}p/day"
         )
         print("Sector selection refresh: monthly")
         print("\n=== Latest scores ===")
