@@ -1,64 +1,77 @@
-import numpy as np
 import pandas as pd
 
 from rebalance_backtest.rotation import AdaptiveRotationStrategy
 
 
-def _prices(stock_growth: float, bond_growth: float, safe_growth: float) -> pd.DataFrame:
-    dates = pd.bdate_range("2023-01-02", periods=320)
-    t = np.arange(len(dates), dtype=float)
-    wiggle = 1.0 + 0.003 * np.sin(t / 5.0)
-    return pd.DataFrame(
-        {
-            "STOCK": 100.0 * np.exp(stock_growth * t) * wiggle,
-            "BOND": 100.0 * np.exp(bond_growth * t) * (1.0 + 0.0015 * np.cos(t / 7.0)),
-            "SAFE": 100.0 * np.exp(safe_growth * t),
-        },
-        index=dates,
-    )
-
-
 def _strategy() -> AdaptiveRotationStrategy:
     return AdaptiveRotationStrategy(
-        stock_tickers=["STOCK"],
+        stock_tickers=["MKT", "A", "B", "C"],
         bond_tickers=["BOND"],
         safe_ticker="SAFE",
-        no_trade_band=0.05,
-        max_weekly_shift=0.10,
+        market_ticker="MKT",
     )
 
 
-def test_rotation_prefers_stock_when_stock_has_best_excess_trend():
-    prices = _prices(stock_growth=0.0012, bond_growth=0.0003, safe_growth=0.0001)
-    rec = _strategy().recommend(prices)
-    assert rec.regime == "STOCK"
-    assert rec.target_weights["STOCK"] > 0.9
+def _current(**kwargs) -> pd.Series:
+    s = pd.Series(0.0, index=["MKT", "A", "B", "C", "BOND", "SAFE"])
+    for key, value in kwargs.items():
+        s[key] = value
+    if s.sum() < 1.0:
+        s["SAFE"] += 1.0 - s.sum()
+    return s
 
 
-def test_rotation_moves_to_bond_when_stock_weakens():
-    prices = _prices(stock_growth=-0.0004, bond_growth=0.0007, safe_growth=0.0001)
-    rec = _strategy().recommend(prices)
-    assert rec.regime == "BOND"
-    assert rec.target_weights["BOND"] > 0.9
+def test_hot_sector_cannot_force_stock_regime_when_market_breadth_is_weak():
+    st = _strategy()
+    scores = pd.Series(
+        {"MKT": -0.30, "A": 2.00, "B": -0.50, "C": -0.40, "BOND": -0.20, "SAFE": 0.0}
+    )
+    regime, market_score, _, _ = st._choose_regime(scores, _current(SAFE=1.0))
+    assert market_score < 0
+    assert regime == "SAFE"
 
 
-def test_rotation_moves_to_safe_when_risky_assets_lag_safe():
-    prices = _prices(stock_growth=-0.0005, bond_growth=0.00002, safe_growth=0.00015)
-    rec = _strategy().recommend(prices)
-    assert rec.regime == "SAFE"
-    assert rec.target_weights["SAFE"] == 1.0
+def test_stock_hysteresis_requires_more_to_enter_than_to_stay():
+    st = _strategy()
+    scores = pd.Series(
+        {"MKT": 0.05, "A": 0.06, "B": 0.04, "C": 0.03, "BOND": -0.20, "SAFE": 0.0}
+    )
+    assert st._choose_regime(
+        scores, _current(MKT=0.30, A=0.275, B=0.275, SAFE=0.15)
+    )[0] == "STOCK"
+    assert st._choose_regime(scores, _current(SAFE=1.0))[0] == "SAFE"
 
 
-def test_rotation_caps_one_week_shift_to_ten_percentage_points():
-    prices = _prices(stock_growth=0.0012, bond_growth=0.0003, safe_growth=0.0001)
-    current = pd.Series({"STOCK": 0.0, "BOND": 0.0, "SAFE": 1.0})
-    rec = _strategy().recommend(prices, current, apply_no_trade_band=True)
-    assert np.isclose(rec.target_weights["STOCK"], 0.10)
-    assert np.isclose(rec.target_weights["SAFE"], 0.90)
+def test_risk_on_adds_only_five_percentage_points_per_week():
+    st = _strategy()
+    scores = pd.Series(
+        {"MKT": 1.0, "A": 0.9, "B": 0.8, "C": 0.1, "BOND": -0.2, "SAFE": 0.0}
+    )
+    ideal = st._ideal_target("STOCK", scores, _current().index)
+    nxt = st._apply_staged_transition(ideal, _current(SAFE=1.0), "STOCK")
+    assert abs(nxt[st.stock_tickers].sum() - 0.05) < 1e-9
+    assert abs(nxt["SAFE"] - 0.95) < 1e-9
 
 
-def test_rotation_does_nothing_inside_five_percentage_point_band():
-    prices = _prices(stock_growth=0.0012, bond_growth=0.0003, safe_growth=0.0001)
-    current = pd.Series({"STOCK": 0.92, "BOND": 0.0, "SAFE": 0.08})
-    rec = _strategy().recommend(prices, current, apply_no_trade_band=True)
-    pd.testing.assert_series_equal(rec.target_weights, current.astype(float))
+def test_risk_off_cuts_fifteen_percentage_points_per_week():
+    st = _strategy()
+    scores = pd.Series(
+        {"MKT": -1.0, "A": -0.8, "B": -0.7, "C": -0.6, "BOND": -0.2, "SAFE": 0.0}
+    )
+    ideal = st._ideal_target("SAFE", scores, _current().index)
+    cur = _current(MKT=0.30, A=0.275, B=0.275, SAFE=0.15)
+    nxt = st._apply_staged_transition(ideal, cur, "SAFE")
+    assert abs(nxt[st.stock_tickers].sum() - 0.70) < 1e-9
+    assert abs(nxt["SAFE"] - 0.30) < 1e-9
+
+
+def test_stock_ideal_has_core_and_sector_caps():
+    st = _strategy()
+    scores = pd.Series(
+        {"MKT": 0.7, "A": 1.0, "B": 0.8, "C": 0.2, "BOND": -0.1, "SAFE": 0.0}
+    )
+    ideal = st._ideal_target("STOCK", scores, _current().index)
+    assert abs(ideal["MKT"] - 0.30) < 1e-9
+    assert ideal[["A", "B", "C"]].max() <= 0.30 + 1e-9
+    assert abs(ideal[st.stock_tickers].sum() - 0.85) < 1e-9
+    assert abs(ideal["SAFE"] - 0.15) < 1e-9
