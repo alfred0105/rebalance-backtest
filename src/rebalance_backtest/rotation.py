@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Sequence
 
 import numpy as np
@@ -16,21 +16,26 @@ class RotationRecommendation:
     best_stock_score: float
     bond_score: float
     safe_ticker: str
+    short_return: float
+    emergency_brake: bool
+    stock_target: float
+    bond_target: float
+    safe_target: float
 
 
 @dataclass
 class AdaptiveRotationStrategy:
-    """Hierarchical stock -> bond -> safe ETF rotation with staged execution.
+    """Daily monitored stock -> bond -> safe ETF rotation.
 
-    v0.3 deliberately separates two jobs:
-    1) market regime: broad market + median sector breadth decides whether stock
-       risk is attractive versus the safe asset;
-    2) security selection: only after a STOCK regime is confirmed do sector
-       scores decide which stock ETFs receive the satellite allocation.
+    Long-horizon momentum determines the desired stock exposure continuously.
+    Bond momentum decides how much of the remaining capital should rotate into
+    bonds; the rest stays in the safe ETF. A 20-day crash brake can cap stock
+    exposure quickly. Signals are evaluated daily, but trades only occur after
+    the portfolio moves outside the tolerance band.
 
-    Regime changes use hysteresis. Risk is added slowly, cut faster, and sector
-    switches have their own transfer cap. A tolerance band suppresses small
-    rebalances. The safe ETF absorbs all residual weight during transitions.
+    Sector selection is refreshed only once per calendar month. Between monthly
+    refreshes, the same sector set is kept while broad risk exposure can still
+    change daily.
     """
 
     stock_tickers: Sequence[str]
@@ -42,21 +47,31 @@ class AdaptiveRotationStrategy:
     vol_window: int = 63
     market_weight: float = 0.60
     sector_breadth_weight: float = 0.40
-    stock_enter_threshold: float = 0.15
-    stock_exit_threshold: float = 0.00
-    bond_enter_threshold: float = 0.10
-    bond_exit_threshold: float = 0.00
+
     no_trade_band: float = 0.05
     risk_on_step: float = 0.05
-    risk_off_step: float = 0.15
+    risk_off_step: float = 0.20
+    emergency_step: float = 0.35
     sector_step: float = 0.05
-    stock_exposure: float = 0.85
-    bond_exposure: float = 0.85
-    market_core_weight: float = 0.30
-    sector_max_weight: float = 0.30
+
+    max_stock_exposure: float = 0.90
+    market_core_fraction: float = 0.50
+    sector_max_weight: float = 0.25
     stock_top_n: int = 2
     bond_top_n: int = 1
+
+    brake_lookback: int = 20
+    brake_threshold: float = -0.08
+    brake_stock_cap: float = 0.35
+    bond_score_full: float = 0.30
+    bond_max_fraction_of_residual: float = 0.90
     score_clip: float = 3.0
+
+    stock_score_points: tuple[float, ...] = (-0.30, -0.15, 0.00, 0.15, 0.30, 0.60)
+    stock_target_points: tuple[float, ...] = (0.00, 0.15, 0.35, 0.60, 0.75, 0.90)
+
+    _selected_sectors: tuple[str, ...] = field(default_factory=tuple, init=False, repr=False)
+    _sector_month: tuple[int, int] | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.stock_tickers = list(dict.fromkeys(self.stock_tickers))
@@ -77,24 +92,30 @@ class AdaptiveRotationStrategy:
             raise ValueError("lookback_weights must sum to 1")
         if not np.isclose(self.market_weight + self.sector_breadth_weight, 1.0):
             raise ValueError("market/breadth weights must sum to 1")
-        if min(self.lookbacks) <= 0 or self.vol_window <= 1:
-            raise ValueError("lookbacks and vol_window must be positive")
+        if len(self.stock_score_points) != len(self.stock_target_points):
+            raise ValueError("stock score/target point counts must match")
+        if any(b <= a for a, b in zip(self.stock_score_points, self.stock_score_points[1:])):
+            raise ValueError("stock_score_points must be strictly increasing")
+        if min(self.lookbacks) <= 0 or self.vol_window <= 1 or self.brake_lookback <= 0:
+            raise ValueError("lookbacks and windows must be positive")
         for name, value in {
             "no_trade_band": self.no_trade_band,
             "risk_on_step": self.risk_on_step,
             "risk_off_step": self.risk_off_step,
+            "emergency_step": self.emergency_step,
             "sector_step": self.sector_step,
-            "stock_exposure": self.stock_exposure,
-            "bond_exposure": self.bond_exposure,
-            "market_core_weight": self.market_core_weight,
+            "max_stock_exposure": self.max_stock_exposure,
+            "market_core_fraction": self.market_core_fraction,
             "sector_max_weight": self.sector_max_weight,
+            "brake_stock_cap": self.brake_stock_cap,
+            "bond_max_fraction_of_residual": self.bond_max_fraction_of_residual,
         }.items():
             if not 0 <= value <= 1:
                 raise ValueError(f"{name} must be between 0 and 1")
-        if self.risk_on_step <= 0 or self.risk_off_step <= 0 or self.sector_step <= 0:
+        if min(self.risk_on_step, self.risk_off_step, self.emergency_step, self.sector_step) <= 0:
             raise ValueError("step sizes must be positive")
-        if self.market_core_weight > self.stock_exposure:
-            raise ValueError("market_core_weight cannot exceed stock_exposure")
+        if self.bond_score_full <= 0:
+            raise ValueError("bond_score_full must be positive")
 
     @property
     def universe(self) -> list[str]:
@@ -112,7 +133,7 @@ class AdaptiveRotationStrategy:
         return weights
 
     def _scores(self, price_history: pd.DataFrame) -> pd.Series | None:
-        required = max(max(self.lookbacks) + 1, self.vol_window + 1)
+        required = max(max(self.lookbacks) + 1, self.vol_window + 1, self.brake_lookback + 1)
         if len(price_history) < required:
             return None
         missing = [ticker for ticker in self.universe if ticker not in price_history.columns]
@@ -135,91 +156,85 @@ class AdaptiveRotationStrategy:
         scores[self.safe_ticker] = 0.0
         return scores.clip(lower=-self.score_clip, upper=self.score_clip)
 
-    @staticmethod
-    def _current_bucket(
-        current: pd.Series,
-        stock_tickers: Sequence[str],
-        bond_tickers: Sequence[str],
-        safe_ticker: str,
-    ) -> str:
-        stock = float(current.reindex(stock_tickers).fillna(0.0).sum())
-        bond = float(current.reindex(bond_tickers).fillna(0.0).sum())
-        safe = float(current.get(safe_ticker, 0.0))
-        if stock >= max(bond, safe):
-            return "STOCK"
-        if bond >= max(stock, safe):
-            return "BOND"
-        return "SAFE"
-
     def _market_score(self, scores: pd.Series) -> float:
         broad = float(scores[self.market_ticker])
         sectors = scores.reindex(self.sector_tickers).dropna()
         breadth = float(sectors.median()) if len(sectors) else broad
         return self.market_weight * broad + self.sector_breadth_weight * breadth
 
-    def _choose_regime(
-        self, scores: pd.Series, current_weights: pd.Series
-    ) -> tuple[str, float, float, float]:
-        market_score = self._market_score(scores)
-        best_stock_score = float(scores.reindex(self.stock_tickers).max())
-        bond_score = float(scores.reindex(self.bond_tickers).max())
-        current_bucket = self._current_bucket(
-            current_weights, self.stock_tickers, self.bond_tickers, self.safe_ticker
+    def _short_return(self, price_history: pd.DataFrame) -> float:
+        market = price_history[self.market_ticker].astype(float)
+        if len(market) <= self.brake_lookback:
+            return 0.0
+        return float(market.iloc[-1] / market.iloc[-(self.brake_lookback + 1)] - 1.0)
+
+    def _stock_target_from_score(self, market_score: float) -> float:
+        raw = float(
+            np.interp(
+                market_score,
+                np.asarray(self.stock_score_points, dtype=float),
+                np.asarray(self.stock_target_points, dtype=float),
+            )
         )
+        return float(np.clip(raw, 0.0, self.max_stock_exposure))
 
-        if current_bucket == "STOCK":
-            if market_score > self.stock_exit_threshold:
-                return "STOCK", market_score, best_stock_score, bond_score
-            if bond_score > self.bond_enter_threshold:
-                return "BOND", market_score, best_stock_score, bond_score
-            return "SAFE", market_score, best_stock_score, bond_score
+    def _allocation_targets(
+        self,
+        market_score: float,
+        bond_score: float,
+        short_return: float,
+    ) -> tuple[float, float, float, bool]:
+        stock_target = self._stock_target_from_score(market_score)
+        emergency = short_return <= self.brake_threshold
+        if emergency:
+            stock_target = min(stock_target, self.brake_stock_cap)
 
-        if current_bucket == "BOND":
-            if market_score > self.stock_enter_threshold:
-                return "STOCK", market_score, best_stock_score, bond_score
-            if bond_score > self.bond_exit_threshold:
-                return "BOND", market_score, best_stock_score, bond_score
-            return "SAFE", market_score, best_stock_score, bond_score
+        residual = max(0.0, 1.0 - stock_target)
+        bond_strength = float(np.clip(bond_score / self.bond_score_full, 0.0, 1.0))
+        bond_target = residual * self.bond_max_fraction_of_residual * bond_strength
+        safe_target = 1.0 - stock_target - bond_target
+        return stock_target, bond_target, safe_target, emergency
 
-        if market_score > self.stock_enter_threshold:
-            return "STOCK", market_score, best_stock_score, bond_score
-        if bond_score > self.bond_enter_threshold:
-            return "BOND", market_score, best_stock_score, bond_score
-        return "SAFE", market_score, best_stock_score, bond_score
-
-    @staticmethod
-    def _equal_weight_top(scores: pd.Series, tickers: Sequence[str], n: int) -> pd.Series:
-        subset = scores.reindex(tickers).sort_values(ascending=False)
-        selected = subset.head(max(1, min(n, len(subset)))).index
-        weights = pd.Series(0.0, index=tickers, dtype=float)
-        weights.loc[selected] = 1.0 / len(selected)
-        return weights
-
-    def _ideal_target(self, regime: str, scores: pd.Series, columns: Sequence[str]) -> pd.Series:
-        target = pd.Series(0.0, index=columns, dtype=float)
-        if regime == "SAFE":
-            target[self.safe_ticker] = 1.0
-            return target
-
-        if regime == "BOND":
-            within = self._equal_weight_top(scores, self.bond_tickers, self.bond_top_n)
-            target.loc[within.index] = within * self.bond_exposure
-            target[self.safe_ticker] = 1.0 - self.bond_exposure
-            return target
-
-        core = min(self.market_core_weight, self.stock_exposure)
-        target[self.market_ticker] = core
-        remaining = self.stock_exposure - core
-        if self.sector_tickers and remaining > 0:
+    def _refresh_monthly_sectors(self, scores: pd.Series, date: pd.Timestamp) -> tuple[str, ...]:
+        month_key = (date.year, date.month)
+        if self._sector_month != month_key or not self._selected_sectors:
             ranked = scores.reindex(self.sector_tickers).sort_values(ascending=False)
-            selected = list(ranked.head(max(1, min(self.stock_top_n, len(ranked)))).index)
-            per_sector = min(self.sector_max_weight, remaining / len(selected))
-            for ticker in selected:
-                target[ticker] = per_sector
-            target[self.safe_ticker] = 1.0 - float(target.drop(labels=[self.safe_ticker]).sum())
-        else:
-            target[self.safe_ticker] = 1.0 - core
-        return target
+            n = max(1, min(self.stock_top_n, len(ranked))) if len(ranked) else 0
+            self._selected_sectors = tuple(ranked.head(n).index)
+            self._sector_month = month_key
+        return self._selected_sectors
+
+    def _ideal_target(
+        self,
+        scores: pd.Series,
+        columns: Sequence[str],
+        date: pd.Timestamp,
+        stock_target: float,
+        bond_target: float,
+    ) -> pd.Series:
+        target = pd.Series(0.0, index=columns, dtype=float)
+
+        if stock_target > 0:
+            selected = self._refresh_monthly_sectors(scores, date)
+            core = stock_target * self.market_core_fraction
+            remaining = stock_target - core
+            if selected and remaining > 0:
+                per_sector = min(self.sector_max_weight, remaining / len(selected))
+                assigned = per_sector * len(selected)
+                target[self.market_ticker] = core + (remaining - assigned)
+                for ticker in selected:
+                    target[ticker] = per_sector
+            else:
+                target[self.market_ticker] = stock_target
+
+        if bond_target > 0:
+            ranked_bonds = scores.reindex(self.bond_tickers).sort_values(ascending=False)
+            selected_bonds = ranked_bonds.head(max(1, min(self.bond_top_n, len(ranked_bonds)))).index
+            if len(selected_bonds):
+                target.loc[selected_bonds] = bond_target / len(selected_bonds)
+
+        target[self.safe_ticker] = 1.0 - float(target.drop(labels=[self.safe_ticker]).sum())
+        return target.clip(lower=0.0)
 
     def _adjust_bucket(
         self,
@@ -227,6 +242,8 @@ class AdaptiveRotationStrategy:
         tickers: Sequence[str],
         desired: pd.Series,
         *,
+        add_step: float,
+        cut_step: float,
         allow_rotation: bool,
     ) -> pd.Series:
         tickers = list(tickers)
@@ -238,19 +255,18 @@ class AdaptiveRotationStrategy:
 
         gap = des_total - cur_total
         if gap > self.no_trade_band:
-            add = min(self.risk_on_step, gap)
+            add = min(add_step, gap)
             if des_total > 0:
                 out += add * (des / des_total)
         elif gap < -self.no_trade_band:
-            cut = min(self.risk_off_step, -gap)
+            cut = min(cut_step, -gap)
             if cur_total > 0:
                 out *= max(0.0, (cur_total - cut) / cur_total)
 
         if allow_rotation:
             total = float(out.sum())
             if total > 0 and des_total > 0:
-                desired_comp = des / des_total
-                desired_abs = desired_comp * total
+                desired_abs = (des / des_total) * total
                 comp_gap = desired_abs - out
                 under = comp_gap.clip(lower=0.0)
                 over = -comp_gap.clip(upper=0.0)
@@ -270,36 +286,51 @@ class AdaptiveRotationStrategy:
         self,
         ideal: pd.Series,
         current: pd.Series,
-        regime: str,
+        *,
+        emergency: bool,
     ) -> pd.Series:
         current = current.reindex(ideal.index).fillna(0.0).astype(float)
-        current_bucket = self._current_bucket(
-            current, self.stock_tickers, self.bond_tickers, self.safe_ticker
-        )
+        stock_cut = self.emergency_step if emergency else self.risk_off_step
 
         stock_next = self._adjust_bucket(
             current,
             self.stock_tickers,
             ideal,
-            allow_rotation=(regime == "STOCK" and current_bucket == "STOCK"),
+            add_step=self.risk_on_step,
+            cut_step=stock_cut,
+            allow_rotation=True,
         )
         bond_next = self._adjust_bucket(
             current,
             self.bond_tickers,
             ideal,
-            allow_rotation=(regime == "BOND" and current_bucket == "BOND"),
+            add_step=self.risk_on_step,
+            cut_step=self.risk_off_step,
+            allow_rotation=False,
         )
 
         proposed = pd.Series(0.0, index=ideal.index, dtype=float)
         proposed.loc[self.stock_tickers] = stock_next
         proposed.loc[self.bond_tickers] = bond_next
-        risky_total = float(proposed.drop(labels=[self.safe_ticker], errors="ignore").sum())
+        risky = [ticker for ticker in proposed.index if ticker != self.safe_ticker]
+        risky_total = float(proposed.loc[risky].sum())
         if risky_total > 1.0:
-            risky = [t for t in proposed.index if t != self.safe_ticker]
             proposed.loc[risky] *= 1.0 / risky_total
             risky_total = 1.0
         proposed[self.safe_ticker] = 1.0 - risky_total
         return proposed.clip(lower=0.0)
+
+    @staticmethod
+    def _regime_label(stock_target: float, emergency: bool) -> str:
+        if emergency:
+            return "BRAKE"
+        if stock_target >= 0.70:
+            return "RISK_ON"
+        if stock_target >= 0.35:
+            return "BALANCED"
+        if stock_target > 0:
+            return "DEFENSIVE"
+        return "SAFE"
 
     def recommend(
         self,
@@ -324,26 +355,42 @@ class AdaptiveRotationStrategy:
                 best_stock_score=float("nan"),
                 bond_score=float("nan"),
                 safe_ticker=self.safe_ticker,
+                short_return=float("nan"),
+                emergency_brake=False,
+                stock_target=float("nan"),
+                bond_target=float("nan"),
+                safe_target=float("nan"),
             )
 
-        regime, market_score, best_stock_score, bond_score = self._choose_regime(
-            scores, current_weights
+        market_score = self._market_score(scores)
+        best_stock_score = float(scores.reindex(self.stock_tickers).max())
+        bond_score = float(scores.reindex(self.bond_tickers).max())
+        short_return = self._short_return(price_history)
+        stock_target, bond_target, safe_target, emergency = self._allocation_targets(
+            market_score, bond_score, short_return
         )
-        ideal = self._ideal_target(regime, scores, columns)
+
+        date = pd.Timestamp(price_history.index[-1])
+        ideal = self._ideal_target(scores, columns, date, stock_target, bond_target)
         target = (
-            self._apply_staged_transition(ideal, current_weights, regime)
+            self._apply_staged_transition(ideal, current_weights, emergency=emergency)
             if apply_no_trade_band
             else ideal
         )
 
         return RotationRecommendation(
-            regime=regime,
+            regime=self._regime_label(stock_target, emergency),
             target_weights=target,
             scores=scores,
             market_score=market_score,
             best_stock_score=best_stock_score,
             bond_score=bond_score,
             safe_ticker=self.safe_ticker,
+            short_return=short_return,
+            emergency_brake=emergency,
+            stock_target=stock_target,
+            bond_target=bond_target,
+            safe_target=safe_target,
         )
 
     def target_weights(
