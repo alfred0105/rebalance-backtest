@@ -24,6 +24,7 @@ def _strategy() -> AdaptiveRotationStrategy:
         bond_tickers=["BOND"],
         safe_ticker="SAFE",
         no_trade_band=0.05,
+        max_weekly_shift=0.10,
     )
 
 
@@ -46,3 +47,18 @@ def test_rotation_moves_to_safe_when_risky_assets_lag_safe():
     rec = _strategy().recommend(prices)
     assert rec.regime == "SAFE"
     assert rec.target_weights["SAFE"] == 1.0
+
+
+def test_rotation_caps_one_week_shift_to_ten_percentage_points():
+    prices = _prices(stock_growth=0.0012, bond_growth=0.0003, safe_growth=0.0001)
+    current = pd.Series({"STOCK": 0.0, "BOND": 0.0, "SAFE": 1.0})
+    rec = _strategy().recommend(prices, current, apply_no_trade_band=True)
+    assert np.isclose(rec.target_weights["STOCK"], 0.10)
+    assert np.isclose(rec.target_weights["SAFE"], 0.90)
+
+
+def test_rotation_does_nothing_inside_five_percentage_point_band():
+    prices = _prices(stock_growth=0.0012, bond_growth=0.0003, safe_growth=0.0001)
+    current = pd.Series({"STOCK": 0.92, "BOND": 0.0, "SAFE": 0.08})
+    rec = _strategy().recommend(prices, current, apply_no_trade_band=True)
+    pd.testing.assert_series_equal(rec.target_weights, current.astype(float))
