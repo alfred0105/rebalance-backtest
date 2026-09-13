@@ -255,7 +255,12 @@ class AdaptiveRotationStrategy:
                 under = comp_gap.clip(lower=0.0)
                 over = -comp_gap.clip(upper=0.0)
                 transferable = min(self.sector_step, float(under.sum()), float(over.sum()))
-                if transferable > self.no_trade_band and under.sum() > 0 and over.sum() > 0:
+                if (
+                    transferable > 1e-12
+                    and float(comp_gap.abs().max()) > self.no_trade_band
+                    and under.sum() > 0
+                    and over.sum() > 0
+                ):
                     out -= transferable * (over / over.sum())
                     out += transferable * (under / under.sum())
 
