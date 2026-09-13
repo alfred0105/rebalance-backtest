@@ -29,30 +29,21 @@ MARKET_TICKER = "069500.KS"
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Backtest Korean ETF stock -> bond -> safe-asset adaptive rotation."
+        description="Daily-monitored Korean ETF stock -> bond -> safe adaptive rotation."
     )
     p.add_argument("--start", default="2015-01-01")
     p.add_argument("--end", default=None)
     p.add_argument("--safe", choices=SAFE_CHOICES, default="shortbond")
     p.add_argument("--initial-capital", type=float, default=10_000_000.0)
     p.add_argument("--transaction-cost-bps", type=float, default=5.0)
-    p.add_argument(
-        "--rebalance-band",
-        "--no-trade-band",
-        dest="no_trade_band",
-        type=float,
-        default=0.05,
-        help="Allowed deviation before rebalancing starts (default: 0.05).",
-    )
+    p.add_argument("--rebalance-band", type=float, default=0.05)
     p.add_argument("--risk-on-step", type=float, default=0.05)
-    p.add_argument("--risk-off-step", type=float, default=0.15)
+    p.add_argument("--risk-off-step", type=float, default=0.20)
+    p.add_argument("--emergency-step", type=float, default=0.35)
     p.add_argument("--sector-step", type=float, default=0.05)
-    p.add_argument("--stock-enter-threshold", type=float, default=0.15)
-    p.add_argument("--stock-exit-threshold", type=float, default=0.00)
-    p.add_argument("--bond-enter-threshold", type=float, default=0.10)
-    p.add_argument("--bond-exit-threshold", type=float, default=0.00)
-    p.add_argument("--stock-exposure", type=float, default=0.85)
-    p.add_argument("--bond-exposure", type=float, default=0.85)
+    p.add_argument("--brake-lookback", type=int, default=20)
+    p.add_argument("--brake-threshold", type=float, default=-0.08)
+    p.add_argument("--brake-stock-cap", type=float, default=0.35)
     p.add_argument("--output", default="results_rotation")
     return p.parse_args()
 
@@ -78,16 +69,14 @@ def main() -> None:
         bond_tickers=list(KR_BONDS),
         safe_ticker=safe_ticker,
         market_ticker=MARKET_TICKER,
-        no_trade_band=args.no_trade_band,
+        no_trade_band=args.rebalance_band,
         risk_on_step=args.risk_on_step,
         risk_off_step=args.risk_off_step,
+        emergency_step=args.emergency_step,
         sector_step=args.sector_step,
-        stock_enter_threshold=args.stock_enter_threshold,
-        stock_exit_threshold=args.stock_exit_threshold,
-        bond_enter_threshold=args.bond_enter_threshold,
-        bond_exit_threshold=args.bond_exit_threshold,
-        stock_exposure=args.stock_exposure,
-        bond_exposure=args.bond_exposure,
+        brake_lookback=args.brake_lookback,
+        brake_threshold=args.brake_threshold,
+        brake_stock_cap=args.brake_stock_cap,
     )
 
     baselines = {
@@ -97,7 +86,7 @@ def main() -> None:
             "M",
         ),
         "safe_only": (FixedWeightStrategy({safe_ticker: 1.0}), None),
-        "adaptive_rotation": (rotation, "W-FRI"),
+        "adaptive_rotation_daily": (rotation, "D"),
     }
 
     out = Path(args.output)
@@ -126,7 +115,7 @@ def main() -> None:
     curve_df.to_csv(out / "equity_curves.csv")
 
     ax = curve_df.plot(figsize=(11, 6), logy=True)
-    ax.set_title("Korean ETF adaptive rotation v0.3")
+    ax.set_title("Korean ETF adaptive rotation v0.4 - daily monitoring")
     ax.set_ylabel("Portfolio value (log scale)")
     ax.set_xlabel("")
     ax.grid(True, alpha=0.25)
@@ -134,7 +123,9 @@ def main() -> None:
     plt.savefig(out / "equity_curves.png", dpi=160)
     plt.close()
 
-    current = results["adaptive_rotation"].weights.iloc[-1].drop(labels=["CASH"], errors="ignore")
+    current = results["adaptive_rotation_daily"].weights.iloc[-1].drop(
+        labels=["CASH"], errors="ignore"
+    )
     recommendation = rotation.recommend(prices, current, apply_no_trade_band=True)
 
     score_rows = []
@@ -170,14 +161,19 @@ def main() -> None:
         print(summary.round(4))
         print("\n=== Latest regime ===")
         print(
-            f"{recommendation.regime} | market score={recommendation.market_score:.3f} "
-            f"best stock={recommendation.best_stock_score:.3f} "
-            f"bond={recommendation.bond_score:.3f} | safe={safe_name}"
+            f"{recommendation.regime} | market={recommendation.market_score:.3f} "
+            f"bond={recommendation.bond_score:.3f} | 20d return={recommendation.short_return:.1%} "
+            f"| brake={recommendation.emergency_brake}"
         )
         print(
-            f"Band={args.no_trade_band:.1%} | risk-on +{args.risk_on_step:.1%}p/week | "
-            f"risk-off -{args.risk_off_step:.1%}p/week | sector transfer {args.sector_step:.1%}p/week"
+            f"Ideal sleeves: stock={recommendation.stock_target:.1%} "
+            f"bond={recommendation.bond_target:.1%} safe={recommendation.safe_target:.1%}"
         )
+        print(
+            f"Daily monitor | band={args.rebalance_band:.1%} | risk-on +{args.risk_on_step:.1%}p/day | "
+            f"risk-off -{args.risk_off_step:.1%}p/day | emergency -{args.emergency_step:.1%}p/day"
+        )
+        print("Sector selection refresh: monthly")
         print("\n=== Latest scores ===")
         print(scores_df.to_string(index=False, formatters={"score": "{:.3f}".format}))
         print("\n=== Next-step suggested allocation ===")
