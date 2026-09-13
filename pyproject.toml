@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rebalance-backtest"
-version = "0.5.0"
-description = "Backtest daily-monitored Korean ETF rotation with sparse band-edge rebalancing and crash braking."
+version = "0.6.0"
+description = "Backtest and compare daily-monitored Korean ETF rotation variants with sparse band rebalancing and crash braking."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -21,6 +21,7 @@ dev = ["pytest>=8.0"]
 [project.scripts]
 rebalance-backtest = "rebalance_backtest.cli:main"
 rebalance-rotation = "rebalance_backtest.rotation_cli:main"
+rebalance-sweep = "rebalance_backtest.sweep_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
