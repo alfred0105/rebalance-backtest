@@ -18,14 +18,13 @@ KR_STOCKS = {
     "102780.KS": "KODEX 삼성그룹",
     "229200.KS": "KODEX 코스닥150",
 }
-KR_BONDS = {
-    "114260.KS": "KODEX 국고채3년",
-}
+KR_BONDS = {"114260.KS": "KODEX 국고채3년"}
 SAFE_CHOICES = {
     "shortbond": ("153130.KS", "KODEX 단기채권"),
     "kofr": ("423160.KS", "KODEX KOFR금리액티브(합성)"),
     "mmf": ("488770.KS", "KODEX 머니마켓액티브"),
 }
+MARKET_TICKER = "069500.KS"
 
 
 def _parse_args() -> argparse.Namespace:
@@ -43,16 +42,17 @@ def _parse_args() -> argparse.Namespace:
         dest="no_trade_band",
         type=float,
         default=0.05,
-        help="Allowed percentage-point deviation before a trade is triggered (default: 0.05).",
+        help="Allowed deviation before rebalancing starts (default: 0.05).",
     )
-    p.add_argument(
-        "--max-weekly-shift",
-        type=float,
-        default=0.10,
-        help="Maximum percentage-point change per risky ETF at one weekly evaluation (default: 0.10).",
-    )
-    p.add_argument("--threshold", type=float, default=0.05)
-    p.add_argument("--switch-margin", type=float, default=0.10)
+    p.add_argument("--risk-on-step", type=float, default=0.05)
+    p.add_argument("--risk-off-step", type=float, default=0.15)
+    p.add_argument("--sector-step", type=float, default=0.05)
+    p.add_argument("--stock-enter-threshold", type=float, default=0.15)
+    p.add_argument("--stock-exit-threshold", type=float, default=0.00)
+    p.add_argument("--bond-enter-threshold", type=float, default=0.10)
+    p.add_argument("--bond-exit-threshold", type=float, default=0.00)
+    p.add_argument("--stock-exposure", type=float, default=0.85)
+    p.add_argument("--bond-exposure", type=float, default=0.85)
     p.add_argument("--output", default="results_rotation")
     return p.parse_args()
 
@@ -77,16 +77,23 @@ def main() -> None:
         stock_tickers=list(KR_STOCKS),
         bond_tickers=list(KR_BONDS),
         safe_ticker=safe_ticker,
+        market_ticker=MARKET_TICKER,
         no_trade_band=args.no_trade_band,
-        max_weekly_shift=args.max_weekly_shift,
-        absolute_threshold=args.threshold,
-        switch_margin=args.switch_margin,
+        risk_on_step=args.risk_on_step,
+        risk_off_step=args.risk_off_step,
+        sector_step=args.sector_step,
+        stock_enter_threshold=args.stock_enter_threshold,
+        stock_exit_threshold=args.stock_exit_threshold,
+        bond_enter_threshold=args.bond_enter_threshold,
+        bond_exit_threshold=args.bond_exit_threshold,
+        stock_exposure=args.stock_exposure,
+        bond_exposure=args.bond_exposure,
     )
 
     baselines = {
-        "kodex200_buy_hold": (FixedWeightStrategy({"069500.KS": 1.0}), None),
+        "kodex200_buy_hold": (FixedWeightStrategy({MARKET_TICKER: 1.0}), None),
         "static_60_40": (
-            FixedWeightStrategy({"069500.KS": 0.60, "114260.KS": 0.40}),
+            FixedWeightStrategy({MARKET_TICKER: 0.60, "114260.KS": 0.40}),
             "M",
         ),
         "safe_only": (FixedWeightStrategy({safe_ticker: 1.0}), None),
@@ -119,7 +126,7 @@ def main() -> None:
     curve_df.to_csv(out / "equity_curves.csv")
 
     ax = curve_df.plot(figsize=(11, 6), logy=True)
-    ax.set_title("Korean ETF adaptive rotation")
+    ax.set_title("Korean ETF adaptive rotation v0.3")
     ax.set_ylabel("Portfolio value (log scale)")
     ax.set_xlabel("")
     ax.grid(True, alpha=0.25)
@@ -163,12 +170,13 @@ def main() -> None:
         print(summary.round(4))
         print("\n=== Latest regime ===")
         print(
-            f"{recommendation.regime} | stock score={recommendation.stock_score:.3f} "
-            f"bond score={recommendation.bond_score:.3f} | safe={safe_name}"
+            f"{recommendation.regime} | market score={recommendation.market_score:.3f} "
+            f"best stock={recommendation.best_stock_score:.3f} "
+            f"bond={recommendation.bond_score:.3f} | safe={safe_name}"
         )
         print(
-            f"Rebalance band={args.no_trade_band:.1%} | "
-            f"max weekly shift={args.max_weekly_shift:.1%}"
+            f"Band={args.no_trade_band:.1%} | risk-on +{args.risk_on_step:.1%}p/week | "
+            f"risk-off -{args.risk_off_step:.1%}p/week | sector transfer {args.sector_step:.1%}p/week"
         )
         print("\n=== Latest scores ===")
         print(scores_df.to_string(index=False, formatters={"score": "{:.3f}".format}))
