@@ -1,0 +1,31 @@
+=== Backtest summary ===
+                         total_return    cagr  annual_vol  sharpe  sortino  max_drawdown  calmar  trade_count  total_turnover  total_transaction_cost
+kodex200_buy_hold              4.6820  0.1720      0.2509  0.7824   0.9714       -0.4081  0.4215          0.0          0.0000                  0.0000
+static_60_40                   2.2750  0.1145      0.1485  0.8329   1.0296       -0.2523  0.4537        131.0          1.5241              13594.8189
+safe_only                      0.2188  0.0182      0.0028  6.6123   4.5896       -0.0047  3.9213          0.0          0.0000                  0.0000
+adaptive_rotation_daily        3.2586  0.1415      0.1627  0.9275   0.9613       -0.2580  0.5486       2397.0         38.9716             330680.1503
+
+=== Latest regime ===
+RISK_ON | market=0.605 bond=-0.772 | 20d return=2.1% | brake=False
+Ideal sleeves: stock=90.0% bond=0.0% safe=10.0%
+Daily monitor | band=5.0% | min trade=2.0% turnover | risk-on +5.0%p/day | risk-off -20.0%p/day | emergency -35.0%p/day
+Sector selection refresh: monthly
+
+=== Latest scores ===
+   ticker         name  score bucket
+102780.KS   KODEX 삼성그룹  0.765  STOCK
+091160.KS    KODEX 반도체  0.608  STOCK
+069500.KS    KODEX 200  0.603  STOCK
+153130.KS   KODEX 단기채권  0.000   SAFE
+229200.KS KODEX 코스닥150 -0.358  STOCK
+114260.KS  KODEX 국고채3년 -0.772   BOND
+
+=== Next-step suggested allocation ===
+   ticker        name target_weight
+069500.KS   KODEX 200         42.4%
+091160.KS   KODEX 반도체         21.2%
+102780.KS  KODEX 삼성그룹         21.2%
+153130.KS  KODEX 단기채권         10.2%
+114260.KS KODEX 국고채3년          5.0%
+
+Data range actually used: 2015-10-01 -> 2026-09-11
