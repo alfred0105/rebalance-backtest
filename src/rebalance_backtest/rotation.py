@@ -27,15 +27,15 @@ class RotationRecommendation:
 class AdaptiveRotationStrategy:
     """Daily monitored stock -> bond -> safe ETF rotation.
 
-    Long-horizon momentum determines the desired stock exposure continuously.
-    Bond momentum decides how much of the remaining capital should rotate into
-    bonds; the rest stays in the safe ETF. A 20-day crash brake can cap stock
-    exposure quickly. Signals are evaluated daily, but trades only occur after
-    the portfolio moves outside the tolerance band.
+    Long-horizon momentum determines desired stock exposure continuously. Bond
+    momentum decides how much residual capital should rotate into bonds; the
+    rest stays in the safe ETF. A short-horizon crash brake can cap stock risk
+    quickly.
 
-    Sector selection is refreshed only once per calendar month. Between monthly
-    refreshes, the same sector set is kept while broad risk exposure can still
-    change daily.
+    Signals are evaluated daily, but ordinary trades use tolerance-band edge
+    rebalancing rather than chasing the exact target. Small whole-portfolio
+    trades are suppressed. Emergency de-risking ignores those normal frictions.
+    Sector selection is refreshed only once per calendar month.
     """
 
     stock_tickers: Sequence[str]
@@ -49,6 +49,7 @@ class AdaptiveRotationStrategy:
     sector_breadth_weight: float = 0.40
 
     no_trade_band: float = 0.05
+    min_trade_turnover: float = 0.02
     risk_on_step: float = 0.05
     risk_off_step: float = 0.20
     emergency_step: float = 0.35
@@ -100,6 +101,7 @@ class AdaptiveRotationStrategy:
             raise ValueError("lookbacks and windows must be positive")
         for name, value in {
             "no_trade_band": self.no_trade_band,
+            "min_trade_turnover": self.min_trade_turnover,
             "risk_on_step": self.risk_on_step,
             "risk_off_step": self.risk_off_step,
             "emergency_step": self.emergency_step,
@@ -245,6 +247,7 @@ class AdaptiveRotationStrategy:
         add_step: float,
         cut_step: float,
         allow_rotation: bool,
+        band: float | None = None,
     ) -> pd.Series:
         tickers = list(tickers)
         cur = current.reindex(tickers).fillna(0.0).astype(float)
@@ -252,15 +255,16 @@ class AdaptiveRotationStrategy:
         cur_total = float(cur.sum())
         des_total = float(des.sum())
         out = cur.copy()
+        tolerance = self.no_trade_band if band is None else float(band)
 
         gap = des_total - cur_total
-        if gap > self.no_trade_band:
-            add = min(add_step, gap)
-            if des_total > 0:
+        if gap > tolerance:
+            add = min(add_step, gap - tolerance)
+            if add > 0 and des_total > 0:
                 out += add * (des / des_total)
-        elif gap < -self.no_trade_band:
-            cut = min(cut_step, -gap)
-            if cur_total > 0:
+        elif gap < -tolerance:
+            cut = min(cut_step, -gap - tolerance)
+            if cut > 0 and cur_total > 0:
                 out *= max(0.0, (cur_total - cut) / cur_total)
 
         if allow_rotation:
@@ -270,13 +274,14 @@ class AdaptiveRotationStrategy:
                 comp_gap = desired_abs - out
                 under = comp_gap.clip(lower=0.0)
                 over = -comp_gap.clip(upper=0.0)
-                transferable = min(self.sector_step, float(under.sum()), float(over.sum()))
-                if (
-                    transferable > 1e-12
-                    and float(comp_gap.abs().max()) > self.no_trade_band
-                    and under.sum() > 0
-                    and over.sum() > 0
-                ):
+                excess = max(0.0, float(comp_gap.abs().max()) - tolerance)
+                transferable = min(
+                    self.sector_step,
+                    excess,
+                    float(under.sum()),
+                    float(over.sum()),
+                )
+                if transferable > 1e-12 and under.sum() > 0 and over.sum() > 0:
                     out -= transferable * (over / over.sum())
                     out += transferable * (under / under.sum())
 
@@ -291,6 +296,7 @@ class AdaptiveRotationStrategy:
     ) -> pd.Series:
         current = current.reindex(ideal.index).fillna(0.0).astype(float)
         stock_cut = self.emergency_step if emergency else self.risk_off_step
+        stock_band = 0.0 if emergency else self.no_trade_band
 
         stock_next = self._adjust_bucket(
             current,
@@ -299,6 +305,7 @@ class AdaptiveRotationStrategy:
             add_step=self.risk_on_step,
             cut_step=stock_cut,
             allow_rotation=True,
+            band=stock_band,
         )
         bond_next = self._adjust_bucket(
             current,
@@ -307,6 +314,7 @@ class AdaptiveRotationStrategy:
             add_step=self.risk_on_step,
             cut_step=self.risk_off_step,
             allow_rotation=False,
+            band=self.no_trade_band,
         )
 
         proposed = pd.Series(0.0, index=ideal.index, dtype=float)
@@ -318,7 +326,12 @@ class AdaptiveRotationStrategy:
             proposed.loc[risky] *= 1.0 / risky_total
             risky_total = 1.0
         proposed[self.safe_ticker] = 1.0 - risky_total
-        return proposed.clip(lower=0.0)
+        proposed = proposed.clip(lower=0.0)
+
+        turnover = 0.5 * float((proposed - current).abs().sum())
+        if not emergency and turnover < self.min_trade_turnover:
+            return current.copy()
+        return proposed
 
     @staticmethod
     def _regime_label(stock_target: float, emergency: bool) -> str:
