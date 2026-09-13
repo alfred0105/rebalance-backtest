@@ -33,3 +33,24 @@ def test_buy_and_hold_has_no_rebalance_trades():
     result = run_backtest(prices, strategy, schedule=None, transaction_cost_bps=10)
     assert result.trades.empty
     assert result.equity_curve.iloc[-1] > 0
+
+
+class _NoOpDailyStrategy:
+    def initial_weights(self, columns):
+        return pd.Series({"A": 0.6, "B": 0.4}).reindex(columns).fillna(0.0)
+
+    def target_weights(self, price_history, current_weights):
+        return current_weights.copy()
+
+
+def test_daily_noop_signal_does_not_create_phantom_rebalances():
+    prices = _prices()
+    result = run_backtest(
+        prices,
+        _NoOpDailyStrategy(),
+        schedule="D",
+        transaction_cost_bps=10,
+    )
+    assert result.trades.empty
+    assert result.metrics["total_turnover"] == 0.0
+    assert result.metrics["total_transaction_cost"] == 0.0
