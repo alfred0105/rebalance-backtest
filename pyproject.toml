@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rebalance-backtest"
-version = "0.2.0"
-description = "Backtest weekly momentum-tilted rebalancing with asymmetric entry/exit and transaction costs."
+version = "0.3.0"
+description = "Backtest adaptive Korean ETF stock-bond-safe rotation with regime hysteresis and staged rebalancing."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
