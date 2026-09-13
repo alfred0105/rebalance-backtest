@@ -26,6 +26,11 @@ class AdaptiveRotationStrategy:
     largest weight on the 12-month horizon. If stocks no longer beat the safe
     asset, capital rotates to bonds; if bonds also fail the hurdle, the strategy
     moves to the safe ETF.
+
+    Execution is deliberately slower than signal generation. A tolerance band
+    suppresses small trades, while max_weekly_shift caps how many percentage
+    points any risky sleeve can move at one weekly evaluation. The safe ETF acts
+    as the balancing sleeve during staged transitions.
     """
 
     stock_tickers: Sequence[str]
@@ -37,6 +42,7 @@ class AdaptiveRotationStrategy:
     absolute_threshold: float = 0.05
     switch_margin: float = 0.10
     no_trade_band: float = 0.05
+    max_weekly_shift: float = 0.10
     stock_exposure: float = 0.95
     bond_exposure: float = 0.95
     stock_top_n: int = 2
@@ -58,6 +64,8 @@ class AdaptiveRotationStrategy:
             raise ValueError("lookbacks and vol_window must be positive")
         if not (0 <= self.no_trade_band <= 1):
             raise ValueError("no_trade_band must be between 0 and 1")
+        if not (0 < self.max_weekly_shift <= 1):
+            raise ValueError("max_weekly_shift must be within (0, 1]")
         if not (0 <= self.stock_exposure <= 1 and 0 <= self.bond_exposure <= 1):
             raise ValueError("bucket exposures must be between 0 and 1")
 
@@ -150,6 +158,43 @@ class AdaptiveRotationStrategy:
         weights.loc[selected] = 1.0 / len(selected)
         return weights
 
+    def _apply_tolerance_band(
+        self,
+        target: pd.Series,
+        current: pd.Series,
+    ) -> pd.Series:
+        """Move toward target only after breaching the band, with a step cap.
+
+        Risky sleeves are adjusted by at most max_weekly_shift percentage points
+        per evaluation. The safe ETF absorbs the residual so total exposure stays
+        at 100%. This prevents a ranking or regime change from causing an
+        immediate full rotation.
+        """
+        target = target.astype(float)
+        current = current.reindex(target.index).fillna(0.0).astype(float)
+        delta = target - current
+
+        if float(delta.abs().max()) <= self.no_trade_band:
+            return current.copy()
+
+        proposed = current.copy()
+        non_safe = [ticker for ticker in target.index if ticker != self.safe_ticker]
+
+        for ticker in non_safe:
+            gap = float(delta[ticker])
+            if abs(gap) <= self.no_trade_band:
+                continue
+            step = float(np.clip(gap, -self.max_weekly_shift, self.max_weekly_shift))
+            proposed[ticker] = max(0.0, float(current[ticker]) + step)
+
+        risky_total = float(proposed.reindex(non_safe).sum())
+        if risky_total > 1.0:
+            proposed.loc[non_safe] *= 1.0 / risky_total
+            risky_total = 1.0
+
+        proposed[self.safe_ticker] = 1.0 - risky_total
+        return proposed.clip(lower=0.0)
+
     def recommend(
         self,
         price_history: pd.DataFrame,
@@ -189,9 +234,7 @@ class AdaptiveRotationStrategy:
             target[self.safe_ticker] = 1.0
 
         if apply_no_trade_band:
-            max_delta = float((target - current_weights).abs().max())
-            if max_delta < self.no_trade_band:
-                target = current_weights.copy()
+            target = self._apply_tolerance_band(target, current_weights)
 
         return RotationRecommendation(
             regime=regime,
