@@ -1,9 +1,9 @@
 === Backtest summary ===
                          total_return    cagr  annual_vol  sharpe  sortino  max_drawdown  calmar  trade_count  total_turnover  total_transaction_cost
 kodex200_buy_hold              4.6820  0.1720      0.2509  0.7824   0.9714       -0.4081  0.4215          0.0          0.0000                  0.0000
-static_60_40                   2.2750  0.1145      0.1485  0.8329   1.0296       -0.2523  0.4537        131.0          1.5241              13594.8189
-safe_only                      0.2188  0.0182      0.0028  6.6123   4.5896       -0.0047  3.9213          0.0          0.0000                  0.0000
-adaptive_rotation_daily        3.2586  0.1415      0.1627  0.9275   0.9613       -0.2580  0.5486       2397.0         38.9716             330680.1503
+static_60_40                   2.2750  0.1145      0.1485  0.8329   1.0296       -0.2523  0.4537        131.0          1.5241              13594.8134
+safe_only                      0.2188  0.0182      0.0028  6.6124   4.5896       -0.0047  3.9215          0.0          0.0000                  0.0000
+adaptive_rotation_daily        3.2587  0.1415      0.1627  0.9275   0.9613       -0.2580  0.5486       2397.0         38.9715             330680.1386
 
 === Latest regime ===
 RISK_ON | market=0.605 bond=-0.772 | 20d return=2.1% | brake=False
