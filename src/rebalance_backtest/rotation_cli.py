@@ -138,7 +138,11 @@ def main() -> None:
                 "name": _pretty_ticker(ticker, safe_ticker, safe_name),
                 "score": score,
                 "bucket": (
-                    "STOCK" if ticker in KR_STOCKS else "BOND" if ticker in KR_BONDS else "SAFE"
+                    "STOCK"
+                    if ticker in KR_STOCKS
+                    else "BOND"
+                    if ticker in KR_BONDS
+                    else "SAFE"
                 ),
             }
         )
@@ -158,34 +162,53 @@ def main() -> None:
     target_df = pd.DataFrame(target_rows).sort_values("target_weight", ascending=False)
     target_df.to_csv(out / "latest_recommendation.csv", index=False)
 
-    with pd.option_context("display.max_columns", None, "display.width", 180):
-        print("\n=== Backtest summary ===")
-        print(summary.round(4))
-        print("\n=== Latest regime ===")
-        print(
+    report_lines = [
+        "=== Backtest summary ===",
+        summary.round(4).to_string(),
+        "",
+        "=== Latest regime ===",
+        (
             f"{recommendation.regime} | market={recommendation.market_score:.3f} "
-            f"bond={recommendation.bond_score:.3f} | 20d return={recommendation.short_return:.1%} "
-            f"| brake={recommendation.emergency_brake}"
-        )
-        print(
+            f"bond={recommendation.bond_score:.3f} | "
+            f"20d return={recommendation.short_return:.1%} | "
+            f"brake={recommendation.emergency_brake}"
+        ),
+        (
             f"Ideal sleeves: stock={recommendation.stock_target:.1%} "
-            f"bond={recommendation.bond_target:.1%} safe={recommendation.safe_target:.1%}"
-        )
-        print(
-            f"Daily monitor | band={args.rebalance_band:.1%} | min trade={args.min_trade_turnover:.1%} turnover | "
-            f"risk-on +{args.risk_on_step:.1%}p/day | risk-off -{args.risk_off_step:.1%}p/day | "
+            f"bond={recommendation.bond_target:.1%} "
+            f"safe={recommendation.safe_target:.1%}"
+        ),
+        (
+            f"Daily monitor | band={args.rebalance_band:.1%} | "
+            f"min trade={args.min_trade_turnover:.1%} turnover | "
+            f"risk-on +{args.risk_on_step:.1%}p/day | "
+            f"risk-off -{args.risk_off_step:.1%}p/day | "
             f"emergency -{args.emergency_step:.1%}p/day"
-        )
-        print("Sector selection refresh: monthly")
-        print("\n=== Latest scores ===")
-        print(scores_df.to_string(index=False, formatters={"score": "{:.3f}".format}))
-        print("\n=== Next-step suggested allocation ===")
-        shown = target_df.copy()
-        shown["target_weight"] = shown["target_weight"].map(lambda x: f"{x:.1%}")
-        print(shown.to_string(index=False))
+        ),
+        "Sector selection refresh: monthly",
+        "",
+        "=== Latest scores ===",
+        scores_df.to_string(index=False, formatters={"score": "{:.3f}".format}),
+        "",
+        "=== Next-step suggested allocation ===",
+    ]
+    shown = target_df.copy()
+    shown["target_weight"] = shown["target_weight"].map(lambda x: f"{x:.1%}")
+    report_lines.append(shown.to_string(index=False))
+    report_lines.extend(
+        [
+            "",
+            f"Data range actually used: {prices.index[0].date()} -> {prices.index[-1].date()}",
+        ]
+    )
+    report_text = "\n".join(report_lines) + "\n"
+    (out / "latest_report.txt").write_text(report_text, encoding="utf-8")
 
-    print(f"\nData range actually used: {prices.index[0].date()} -> {prices.index[-1].date()}")
+    with pd.option_context("display.max_columns", None, "display.width", 180):
+        print("\n" + report_text)
+
     print(f"Saved results to: {out.resolve()}")
+    print(f"Single-file report: {(out / 'latest_report.txt').resolve()}")
 
 
 if __name__ == "__main__":
