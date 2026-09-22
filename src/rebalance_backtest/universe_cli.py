@@ -34,8 +34,12 @@ def _format_table(df: pd.DataFrame) -> str:
         "bucket",
         "screen_score",
         "momentum_score",
+        "cluster_id",
+        "return_1d",
+        "return_5d",
         "return_20d",
         "return_63d",
+        "peak_drawdown_60d",
         "annual_vol_63d",
         "corr_market_126d",
         "max_drawdown_252d",
@@ -77,7 +81,8 @@ def main() -> None:
         ),
         (
             "Filter: exclude leverage/inverse; prefilter by liquidity + current "
-            "3M strength + defensive coverage; require sufficient daily history."
+            "3M strength + defensive coverage; require sufficient daily history; "
+            "correlation-cluster near-duplicates."
         ),
         "",
         "=== Aggressive/equity candidates ===",
