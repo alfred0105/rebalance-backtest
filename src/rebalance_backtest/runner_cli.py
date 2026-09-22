@@ -11,7 +11,7 @@ from .console import finish_status, live_status
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=(
-            "Run rotation + parameter sweep + peak/hedge experiment, then "
+            "Run ETF discovery + rotation + parameter/hedge experiments, then "
             "publish the latest reports to GitHub."
         )
     )
@@ -58,8 +58,11 @@ def _run_module(module: str, args: list[str]) -> None:
 
 def _publish(*, include_sweep: bool) -> None:
     reports = [
+        Path("runs/latest_universe_report.txt"),
         Path("runs/latest_report.txt"),
         Path("runs/latest_hedge_report.txt"),
+        Path("universes/latest_candidates.csv"),
+        Path("universes/snapshots"),
     ]
     if include_sweep:
         reports.insert(1, Path("runs/latest_sweep_report.txt"))
@@ -104,19 +107,25 @@ def main() -> None:
     common = _common_args(args)
 
     if args.quick:
-        live_status("[1/2] starting broad-signal rotation")
-        _run_module("rebalance_backtest.rotation_cli", common)
+        live_status("[1/3] discovering ETF candidates")
+        _run_module("rebalance_backtest.universe_cli", [])
 
-        live_status("[2/2] starting peak + hedge experiment")
-        _run_module("rebalance_backtest.hedge_sweep_cli", common)
-    else:
-        live_status("[1/3] starting broad-signal rotation")
+        live_status("[2/3] starting broad-signal rotation")
         _run_module("rebalance_backtest.rotation_cli", common)
-
-        live_status("[2/3] starting parameter sweep")
-        _run_module("rebalance_backtest.sweep_cli", common)
 
         live_status("[3/3] starting peak + hedge experiment")
+        _run_module("rebalance_backtest.hedge_sweep_cli", common)
+    else:
+        live_status("[1/4] discovering ETF candidates")
+        _run_module("rebalance_backtest.universe_cli", [])
+
+        live_status("[2/4] starting broad-signal rotation")
+        _run_module("rebalance_backtest.rotation_cli", common)
+
+        live_status("[3/4] starting parameter sweep")
+        _run_module("rebalance_backtest.sweep_cli", common)
+
+        live_status("[4/4] starting peak + hedge experiment")
         _run_module("rebalance_backtest.hedge_sweep_cli", common)
 
     if args.no_push:
