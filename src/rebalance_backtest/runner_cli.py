@@ -10,7 +10,10 @@ from .console import finish_status, live_status
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Run rotation + parameter sweep, then publish the two latest reports to GitHub."
+        description=(
+            "Run rotation + parameter sweep + peak/hedge experiment, then "
+            "publish the latest reports to GitHub."
+        )
     )
     p.add_argument("--start", default="2015-01-01")
     p.add_argument("--end", default=None)
@@ -20,7 +23,12 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--no-push",
         action="store_true",
-        help="Run both backtests but do not commit/push reports.",
+        help="Run all experiments but do not commit/push reports.",
+    )
+    p.add_argument(
+        "--quick",
+        action="store_true",
+        help="Skip the legacy 12-preset sweep and run rotation + hedge experiment only.",
     )
     return p.parse_args()
 
@@ -48,11 +56,14 @@ def _run_module(module: str, args: list[str]) -> None:
     )
 
 
-def _publish() -> None:
+def _publish(*, include_sweep: bool) -> None:
     reports = [
         Path("runs/latest_report.txt"),
-        Path("runs/latest_sweep_report.txt"),
+        Path("runs/latest_hedge_report.txt"),
     ]
+    if include_sweep:
+        reports.insert(1, Path("runs/latest_sweep_report.txt"))
+
     missing = [str(path) for path in reports if not path.exists()]
     if missing:
         raise FileNotFoundError("Missing report(s): " + ", ".join(missing))
@@ -92,18 +103,28 @@ def main() -> None:
     args = _parse_args()
     common = _common_args(args)
 
-    live_status("[1/2] starting rotation backtest")
-    _run_module("rebalance_backtest.rotation_cli", common)
+    if args.quick:
+        live_status("[1/2] starting broad-signal rotation")
+        _run_module("rebalance_backtest.rotation_cli", common)
 
-    live_status("[2/2] starting parameter sweep")
-    _run_module("rebalance_backtest.sweep_cli", common)
+        live_status("[2/2] starting peak + hedge experiment")
+        _run_module("rebalance_backtest.hedge_sweep_cli", common)
+    else:
+        live_status("[1/3] starting broad-signal rotation")
+        _run_module("rebalance_backtest.rotation_cli", common)
+
+        live_status("[2/3] starting parameter sweep")
+        _run_module("rebalance_backtest.sweep_cli", common)
+
+        live_status("[3/3] starting peak + hedge experiment")
+        _run_module("rebalance_backtest.hedge_sweep_cli", common)
 
     if args.no_push:
-        finish_status("[done] rotation + sweep complete; push skipped")
+        finish_status("[done] experiments complete; push skipped")
         return
 
-    _publish()
-    finish_status("[done] rotation + sweep + GitHub publish complete")
+    _publish(include_sweep=not args.quick)
+    finish_status("[done] experiments + GitHub publish complete")
 
 
 if __name__ == "__main__":
