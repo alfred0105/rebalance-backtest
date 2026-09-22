@@ -28,7 +28,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--quick",
         action="store_true",
-        help="Skip the legacy 12-preset sweep and run rotation + hedge experiment only.",
+        help="Skip the legacy 12-preset sweep; run discovery + rotation + hedge only.",
     )
     return p.parse_args()
 
