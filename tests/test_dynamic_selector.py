@@ -2,6 +2,7 @@ import pandas as pd
 
 from rebalance_backtest.dynamic_selector import (
     DynamicSelectionConfig,
+    build_dynamic_target_allocation,
     select_dynamic_universe,
 )
 
@@ -247,3 +248,55 @@ def test_market_shock_exits_aggressive_and_prevents_refill():
     assert len(active["defensive"]) == 1
     assert "AAA.KS" in state["cooldowns"]
     assert "BBB.KS" in state["cooldowns"]
+
+
+def test_integrated_allocation_sums_to_one_and_uses_selected_satellites():
+    config = DynamicSelectionConfig(
+        aggressive_slots=2,
+        defensive_slots=2,
+    )
+    scored = _scored()
+    _, active = select_dynamic_universe(
+        scored,
+        as_of=pd.Timestamp("2026-09-22"),
+        config=config,
+    )
+    allocation = build_dynamic_target_allocation(
+        scored,
+        active,
+        config=config,
+    )
+
+    weights = allocation["ideal_target_weights"]
+    assert abs(sum(weights.values()) - 1.0) < 1e-12
+    assert "069500.KS" in weights
+    assert "AAA.KS" in weights
+    assert "BBB.KS" in weights
+    assert allocation["stock_target"] <= 0.90
+
+
+def test_peak_lock_caps_stock_target():
+    config = DynamicSelectionConfig(
+        aggressive_slots=1,
+        defensive_slots=1,
+    )
+    scored = _scored()
+    scored.loc[
+        scored["ticker"] == "069500.KS",
+        ["peak_drawdown_60d", "return_20d"],
+    ] = [-0.08, -0.02]
+
+    _, active = select_dynamic_universe(
+        scored,
+        as_of=pd.Timestamp("2026-09-22"),
+        config=config,
+    )
+    allocation = build_dynamic_target_allocation(
+        scored,
+        active,
+        config=config,
+    )
+
+    assert allocation["peak_lock"]
+    assert allocation["stock_target"] <= 0.50
+    assert abs(sum(allocation["ideal_target_weights"].values()) - 1.0) < 1e-12
