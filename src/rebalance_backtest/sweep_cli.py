@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from .backtest import run_backtest
+from .console import finish_status, live_status
 from .data import fetch_prices
 from .rotation import AdaptiveRotationStrategy
 from .rotation_cli import KR_BONDS, KR_STOCKS, MARKET_TICKER, SAFE_CHOICES
@@ -153,6 +154,7 @@ def _compact(df: pd.DataFrame) -> pd.DataFrame:
 
 def main() -> None:
     args = _parse_args()
+    live_status("[sweep] downloading and aligning prices")
     safe_ticker, safe_name = SAFE_CHOICES[args.safe]
     tickers = [*KR_STOCKS, *KR_BONDS, safe_ticker]
     prices = fetch_prices(tickers, args.start, args.end)
@@ -170,7 +172,8 @@ def main() -> None:
             "M",
         ),
     }
-    for name, (strategy, schedule) in baselines.items():
+    for idx, (name, (strategy, schedule)) in enumerate(baselines.items(), start=1):
+        live_status(f"[sweep baseline {idx}/{len(baselines)}] {name}")
         result = run_backtest(
             prices,
             strategy,
@@ -180,7 +183,8 @@ def main() -> None:
         )
         rows[name] = result.metrics
 
-    for preset in PRESETS:
+    for idx, preset in enumerate(PRESETS, start=1):
+        live_status(f"[sweep {idx}/{len(PRESETS)}] {preset.name}")
         strategy = _strategy(safe_ticker, preset.params)
         result = run_backtest(
             prices,
@@ -229,9 +233,16 @@ def main() -> None:
     (out / "sweep_report.txt").write_text(report_text, encoding="utf-8")
     Path("runs/latest_sweep_report.txt").write_text(report_text, encoding="utf-8")
 
-    print(report_text)
-    print(f"Saved CSV: {(out / 'sweep_summary.csv').resolve()}")
-    print(f"GitHub-readable report: {(Path('runs') / 'latest_sweep_report.txt').resolve()}")
+    best = variants_by_sharpe.iloc[0]
+    best_name = str(variants_by_sharpe.index[0])
+    finish_status(
+        f"[sweep] done | best={best_name}"
+        f" | CAGR={best['cagr']:.2%}"
+        f" | MDD={best['max_drawdown']:.2%}"
+        f" | Sharpe={best['sharpe']:.3f}"
+        f" | turnover={best['total_turnover']:.2f}"
+        " | report=runs/latest_sweep_report.txt"
+    )
 
 
 if __name__ == "__main__":

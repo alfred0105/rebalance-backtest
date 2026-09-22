@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from .backtest import run_backtest
+from .console import finish_status, live_status
 from .data import fetch_prices
 from .rotation import AdaptiveRotationStrategy
 from .strategy import FixedWeightStrategy
@@ -61,6 +62,7 @@ def _pretty_ticker(ticker: str, safe_ticker: str, safe_name: str) -> str:
 
 def main() -> None:
     args = _parse_args()
+    live_status("[rotation] downloading and aligning prices")
     safe_ticker, safe_name = SAFE_CHOICES[args.safe]
     tickers = [*KR_STOCKS, *KR_BONDS, safe_ticker]
     prices = fetch_prices(tickers, args.start, args.end)
@@ -97,7 +99,8 @@ def main() -> None:
     summaries: dict[str, dict[str, float]] = {}
     curves: dict[str, pd.Series] = {}
     results = {}
-    for name, (strategy, schedule) in baselines.items():
+    for idx, (name, (strategy, schedule)) in enumerate(baselines.items(), start=1):
+        live_status(f"[rotation {idx}/{len(baselines)}] {name}")
         result = run_backtest(
             prices,
             strategy,
@@ -125,6 +128,7 @@ def main() -> None:
     plt.savefig(out / "equity_curves.png", dpi=160)
     plt.close()
 
+    live_status("[rotation] building latest recommendation and report")
     current = results["adaptive_rotation_daily"].weights.iloc[-1].drop(
         labels=["CASH"], errors="ignore"
     )
@@ -208,12 +212,16 @@ def main() -> None:
     runs.mkdir(parents=True, exist_ok=True)
     (runs / "latest_report.txt").write_text(report_text, encoding="utf-8")
 
-    with pd.option_context("display.max_columns", None, "display.width", 180):
-        print("\n" + report_text)
-
-    print(f"Saved results to: {out.resolve()}")
-    print(f"Single-file report: {(out / 'latest_report.txt').resolve()}")
-    print(f"GitHub-readable report: {(runs / 'latest_report.txt').resolve()}")
+    adaptive = summary.loc["adaptive_rotation_daily"]
+    finish_status(
+        "[rotation] done"
+        f" | CAGR={adaptive['cagr']:.2%}"
+        f" | MDD={adaptive['max_drawdown']:.2%}"
+        f" | Sharpe={adaptive['sharpe']:.3f}"
+        f" | trades={int(adaptive['trade_count'])}"
+        f" | turnover={adaptive['total_turnover']:.2f}"
+        " | report=runs/latest_report.txt"
+    )
 
 
 if __name__ == "__main__":

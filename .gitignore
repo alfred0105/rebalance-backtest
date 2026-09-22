@@ -8,3 +8,4 @@ build/
 *.egg-info/
 results/
 .DS_Store
+results_rotation/\nresults_sweep/\n
