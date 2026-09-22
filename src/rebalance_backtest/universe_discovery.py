@@ -20,6 +20,7 @@ EXCLUDE_KEYWORDS = (
 
 DEFENSIVE_KEYWORDS = (
     "국채",
+    "국고채",
     "채권",
     "미국채",
     "달러",
