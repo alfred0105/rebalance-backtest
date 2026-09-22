@@ -1,31 +1,31 @@
 === Backtest summary ===
                          total_return    cagr  annual_vol  sharpe  sortino  max_drawdown  calmar  trade_count  total_turnover  total_transaction_cost
-kodex200_buy_hold              4.6820  0.1720      0.2509  0.7824   0.9714       -0.4081  0.4215          0.0          0.0000                  0.0000
-static_60_40                   2.2750  0.1145      0.1485  0.8329   1.0296       -0.2523  0.4537        131.0          1.5241              13594.8134
-safe_only                      0.2188  0.0182      0.0028  6.6124   4.5896       -0.0047  3.9215          0.0          0.0000                  0.0000
-adaptive_rotation_daily        3.2587  0.1415      0.1627  0.9275   0.9613       -0.2580  0.5486       2397.0         38.9715             330680.1386
+kodex200_buy_hold              4.8701  0.1750      0.2512  0.7923   0.9840       -0.4081  0.4288          0.0          0.0000                  0.0000
+static_60_40                   2.3427  0.1162      0.1487  0.8430   1.0425       -0.2523  0.4606        131.0          1.5241              13594.8258
+safe_only                      0.2194  0.0182      0.0028  6.6188   4.5886       -0.0047  3.9201          0.0          0.0000                  0.0000
+adaptive_rotation_daily        3.4927  0.1467      0.1697  0.9239   0.9524       -0.2676  0.5481        550.0         35.4159             298507.3324
 
 === Latest regime ===
-RISK_ON | market=0.605 bond=-0.772 | 20d return=2.1% | brake=False
+RISK_ON | market=0.653 bond=-0.683 | 20d return=5.9% | brake=False
 Ideal sleeves: stock=90.0% bond=0.0% safe=10.0%
 Daily monitor | band=5.0% | min trade=2.0% turnover | risk-on +5.0%p/day | risk-off -20.0%p/day | emergency -35.0%p/day
 Sector selection refresh: monthly
 
 === Latest scores ===
    ticker         name  score bucket
-102780.KS   KODEX 삼성그룹  0.765  STOCK
-091160.KS    KODEX 반도체  0.608  STOCK
-069500.KS    KODEX 200  0.603  STOCK
+102780.KS   KODEX 삼성그룹  0.795  STOCK
+091160.KS    KODEX 반도체  0.676  STOCK
+069500.KS    KODEX 200  0.638  STOCK
 153130.KS   KODEX 단기채권  0.000   SAFE
-229200.KS KODEX 코스닥150 -0.358  STOCK
-114260.KS  KODEX 국고채3년 -0.772   BOND
+229200.KS KODEX 코스닥150 -0.311  STOCK
+114260.KS  KODEX 국고채3년 -0.683   BOND
 
 === Next-step suggested allocation ===
    ticker        name target_weight
-069500.KS   KODEX 200         42.4%
-091160.KS   KODEX 반도체         21.2%
-102780.KS  KODEX 삼성그룹         21.2%
-153130.KS  KODEX 단기채권         10.2%
-114260.KS KODEX 국고채3년          5.0%
+069500.KS   KODEX 200         42.2%
+091160.KS   KODEX 반도체         22.0%
+102780.KS  KODEX 삼성그룹         20.9%
+153130.KS  KODEX 단기채권         12.3%
+114260.KS KODEX 국고채3년          2.6%
 
-Data range actually used: 2015-10-01 -> 2026-09-11
+Data range actually used: 2015-10-01 -> 2026-09-22
