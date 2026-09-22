@@ -365,31 +365,39 @@ def score_universe(
 
     scored = scored.sort_values("screen_score", ascending=False).reset_index(drop=True)
 
-    # Greedy correlation clustering: near-duplicate ETFs share one cluster so
-    # the selector cannot fill several slots with effectively the same trade.
+    # Build one return matrix/correlation matrix for all scored ETFs, then
+    # perform cheap lookups during greedy clustering. This avoids repeatedly
+    # concatenating pairwise histories as the universe grows.
+    return_columns: dict[str, pd.Series] = {}
+    for ticker in scored["ticker"].astype(str):
+        series = history.get(ticker)
+        if series is not None and len(series) >= 64:
+            return_columns[ticker] = np.log(series / series.shift(1)).dropna()
+
+    if return_columns:
+        return_frame = pd.concat(return_columns, axis=1).sort_index().tail(126)
+        corr_matrix = return_frame.corr(min_periods=63)
+    else:
+        corr_matrix = pd.DataFrame()
+
     representatives: list[tuple[int, str]] = []
     cluster_ids: list[int] = []
     next_cluster = 0
-    for row in scored.itertuples(index=False):
-        ticker = str(row.ticker)
-        series = history.get(ticker)
+    for ticker in scored["ticker"].astype(str):
         assigned: int | None = None
-        if series is not None:
-            for cluster_id, representative_ticker in representatives:
-                representative = history.get(representative_ticker)
-                if representative is None:
-                    continue
-                aligned = pd.concat(
-                    [series.rename("a"), representative.rename("b")],
-                    axis=1,
-                ).dropna()
-                if len(aligned) < 64:
-                    continue
-                returns = np.log(aligned / aligned.shift(1)).dropna().tail(126)
-                corr_value = float(returns["a"].corr(returns["b"]))
-                if np.isfinite(corr_value) and corr_value >= config.cluster_corr_threshold:
-                    assigned = cluster_id
-                    break
+        for cluster_id, representative_ticker in representatives:
+            corr_value = float("nan")
+            if (
+                ticker in corr_matrix.index
+                and representative_ticker in corr_matrix.columns
+            ):
+                corr_value = float(corr_matrix.at[ticker, representative_ticker])
+            if (
+                np.isfinite(corr_value)
+                and corr_value >= config.cluster_corr_threshold
+            ):
+                assigned = cluster_id
+                break
         if assigned is None:
             assigned = next_cluster
             representatives.append((assigned, ticker))
