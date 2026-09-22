@@ -626,7 +626,14 @@ def build_dynamic_target_allocation(
                     weights[str(row["ticker"])] = float(weight)
 
     assigned_total = float(sum(weights.values()))
-    weights[config.safe_ticker] = max(0.0, 1.0 - assigned_total)
+    actual_safe = max(0.0, 1.0 - assigned_total)
+    weights[config.safe_ticker] = actual_safe
+    actual_defensive = float(
+        sum(
+            weights.get(ticker, 0.0)
+            for ticker in active.get("defensive", [])
+        )
+    )
 
     return {
         "market_score": market_score,
@@ -637,7 +644,7 @@ def build_dynamic_target_allocation(
         "peak_lock": peak_lock,
         "market_emergency": market_emergency,
         "stock_target": stock_target,
-        "defensive_target": defensive_target,
-        "safe_target": safe_target,
+        "defensive_target": actual_defensive,
+        "safe_target": actual_safe,
         "ideal_target_weights": weights,
     }
