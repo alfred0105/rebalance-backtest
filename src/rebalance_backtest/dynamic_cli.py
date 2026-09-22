@@ -9,6 +9,7 @@ import pandas as pd
 from .console import finish_status, live_status
 from .dynamic_selector import (
     DynamicSelectionConfig,
+    build_dynamic_target_allocation,
     load_state,
     save_state,
     select_dynamic_universe,
@@ -144,6 +145,12 @@ def main() -> None:
         as_of=as_of,
         config=config,
     )
+    allocation = build_dynamic_target_allocation(
+        scored,
+        active,
+        config=config,
+    )
+    active["allocation"] = allocation
 
     save_state(state_path, state)
     active_path.parent.mkdir(parents=True, exist_ok=True)
@@ -170,6 +177,15 @@ def main() -> None:
         if cooldowns
         else ["(none)"]
     )
+
+    target_lines = [
+        f"{ticker} -> {weight:.1%}"
+        for ticker, weight in sorted(
+            allocation["ideal_target_weights"].items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+    ]
 
     report = [
         "=== Dynamic ETF selector ===",
@@ -198,6 +214,21 @@ def main() -> None:
         "=== Active defensive assets ===",
         _holding_table(state["defensive"], scored, as_of),
         "",
+        "=== Dynamic risk allocation ===",
+        (
+            f"market_score={allocation['market_score']:.3f} "
+            f"| breadth={allocation['breadth']:.3f} "
+            f"| peakDD60={allocation['peak_drawdown_60d']:.1%} "
+            f"| peak_lock={allocation['peak_lock']} "
+            f"| market_emergency={allocation['market_emergency']}"
+        ),
+        (
+            f"Ideal sleeves: stock={allocation['stock_target']:.1%} "
+            f"defensive={allocation['defensive_target']:.1%} "
+            f"safe={allocation['safe_target']:.1%}"
+        ),
+        *target_lines,
+        "",
         "=== Selector actions this run ===",
         *event_lines,
         "",
@@ -209,7 +240,8 @@ def main() -> None:
         "- Normal replacements occur on monthly review only after minimum hold.",
         "- Empty slots created by an individual emergency can refill immediately with a different eligible ETF.",
         "- Correlation clusters prevent near-duplicate ETFs from occupying multiple slots.",
-        "- This state is a research/paper selector state, not a brokerage position record.",
+        "- Target weights are ideal research allocations; they are not brokerage execution records.",
+        "- Historical dynamic-universe backtests require dated universe snapshots; current snapshots are accumulated going forward.",
     ]
     report_text = "\n".join(report) + "\n"
     (runs / "latest_dynamic_report.txt").write_text(
