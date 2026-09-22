@@ -153,7 +153,10 @@ def _deduped_pool(
     config: DynamicSelectionConfig,
 ) -> pd.DataFrame:
     if bucket == "aggressive":
-        pool = scored.loc[scored["bucket"] == "EQUITY"].copy()
+        pool = scored.loc[
+            (scored["bucket"] == "EQUITY")
+            & (scored["ticker"] != config.market_ticker)
+        ].copy()
     else:
         pool = scored.loc[
             scored["bucket"].isin(["DEFENSIVE", "REAL_ASSET"])
