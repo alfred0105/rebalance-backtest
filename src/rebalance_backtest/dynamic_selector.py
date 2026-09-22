@@ -501,3 +501,143 @@ def select_dynamic_universe(
         "events": events,
     }
     return new_state, active
+
+
+def build_dynamic_target_allocation(
+    scored: pd.DataFrame,
+    active: dict[str, Any],
+    *,
+    config: DynamicSelectionConfig | None = None,
+) -> dict[str, Any]:
+    """Combine dynamic security selection with the existing risk-allocation logic.
+
+    This is an ideal research allocation, not a brokerage execution state.
+    """
+    config = config or DynamicSelectionConfig()
+    rows = _row_map(scored)
+    market = rows.get(config.market_ticker)
+    if market is None:
+        raise ValueError(f"Market ticker {config.market_ticker} is missing.")
+
+    market_momentum = _finite(market.get("momentum_score"), 0.0)
+    breadth_series = pd.to_numeric(
+        scored.loc[
+            (scored["bucket"] == "EQUITY")
+            & (scored["ticker"] != config.market_ticker),
+            "momentum_score",
+        ],
+        errors="coerce",
+    ).dropna()
+    breadth = float(breadth_series.median()) if len(breadth_series) else market_momentum
+    market_score = 0.75 * market_momentum + 0.25 * breadth
+
+    stock_score_points = np.asarray(
+        [-0.30, -0.15, 0.00, 0.15, 0.30, 0.60],
+        dtype=float,
+    )
+    stock_target_points = np.asarray(
+        [0.00, 0.15, 0.35, 0.60, 0.75, 0.90],
+        dtype=float,
+    )
+    stock_target = float(
+        np.interp(market_score, stock_score_points, stock_target_points)
+    )
+    stock_target = float(np.clip(stock_target, 0.0, 0.90))
+
+    peak_dd = _finite(market.get("peak_drawdown_60d"), 0.0)
+    short_return = _finite(market.get("return_20d"), 0.0)
+    peak_lock = False
+    if peak_dd <= -0.04 and (short_return <= 0.0 or breadth <= 0.0):
+        peak_lock = True
+        if peak_dd <= -0.10:
+            stock_target = min(stock_target, 0.35)
+        elif peak_dd <= -0.08:
+            stock_target = min(stock_target, 0.50)
+        elif peak_dd <= -0.06:
+            stock_target = min(stock_target, 0.65)
+        else:
+            stock_target = min(stock_target, 0.80)
+
+    market_emergency = bool(active.get("market_emergency"))
+    if market_emergency:
+        stock_target = min(stock_target, 0.35)
+
+    defensive_rows = [
+        rows[ticker]
+        for ticker in active.get("defensive", [])
+        if ticker in rows
+    ]
+    positive_defensive = [
+        row
+        for row in defensive_rows
+        if _finite(row.get("momentum_score"), -999.0) > 0
+    ]
+    best_defensive = max(
+        [_finite(row.get("momentum_score"), 0.0) for row in positive_defensive],
+        default=0.0,
+    )
+
+    residual = max(0.0, 1.0 - stock_target)
+    defensive_strength = float(np.clip(best_defensive / 0.30, 0.0, 1.0))
+    defensive_target = residual * 0.90 * defensive_strength
+    safe_target = 1.0 - stock_target - defensive_target
+
+    weights: dict[str, float] = {}
+
+    aggressive_tickers = [
+        ticker
+        for ticker in active.get("aggressive", [])
+        if ticker in rows
+    ]
+    if stock_target > 0:
+        core = stock_target * 0.50
+        satellite_total = stock_target - core
+        if aggressive_tickers and satellite_total > 0:
+            per_satellite = min(0.25, satellite_total / len(aggressive_tickers))
+            assigned = per_satellite * len(aggressive_tickers)
+            weights[config.market_ticker] = core + (satellite_total - assigned)
+            for ticker in aggressive_tickers:
+                weights[ticker] = per_satellite
+        else:
+            weights[config.market_ticker] = stock_target
+
+    if defensive_target > 0 and positive_defensive:
+        ranked = sorted(
+            positive_defensive,
+            key=lambda row: _finite(row.get("momentum_score"), 0.0),
+            reverse=True,
+        )[:2]
+        scores = np.asarray(
+            [_finite(row.get("momentum_score"), 0.0) for row in ranked],
+            dtype=float,
+        )
+        if scores.sum() > 0:
+            raw = defensive_target * scores / scores.sum()
+            raw = np.minimum(raw, 0.35)
+            assigned = float(raw.sum())
+            leftover = max(0.0, defensive_target - assigned)
+            if leftover > 1e-12:
+                room = np.maximum(0.0, 0.35 - raw)
+                if room.sum() > 0:
+                    extra = np.minimum(leftover * room / room.sum(), room)
+                    raw += extra
+            for row, weight in zip(ranked, raw):
+                if weight > 1e-12:
+                    weights[str(row["ticker"])] = float(weight)
+
+    assigned_total = float(sum(weights.values()))
+    weights[config.safe_ticker] = max(0.0, 1.0 - assigned_total)
+
+    return {
+        "market_score": market_score,
+        "market_momentum": market_momentum,
+        "breadth": breadth,
+        "peak_drawdown_60d": peak_dd,
+        "return_20d": short_return,
+        "peak_lock": peak_lock,
+        "market_emergency": market_emergency,
+        "stock_target": stock_target,
+        "defensive_target": defensive_target,
+        "safe_target": safe_target,
+        "ideal_target_weights": weights,
+    }
