@@ -72,6 +72,8 @@ def main() -> None:
         bond_tickers=list(KR_BONDS),
         safe_ticker=safe_ticker,
         market_ticker=MARKET_TICKER,
+        market_weight=0.75,
+        sector_breadth_weight=0.25,
         no_trade_band=args.rebalance_band,
         min_trade_turnover=args.min_trade_turnover,
         risk_on_step=args.risk_on_step,
@@ -120,7 +122,7 @@ def main() -> None:
     curve_df.to_csv(out / "equity_curves.csv")
 
     ax = curve_df.plot(figsize=(11, 6), logy=True)
-    ax.set_title("Korean ETF adaptive rotation v0.6 - daily monitor, sparse trading")
+    ax.set_title("Korean ETF adaptive rotation v0.7 - broad-signal baseline")
     ax.set_ylabel("Portfolio value (log scale)")
     ax.set_xlabel("")
     ax.grid(True, alpha=0.25)
