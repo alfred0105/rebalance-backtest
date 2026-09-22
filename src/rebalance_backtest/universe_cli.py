@@ -99,7 +99,8 @@ def main() -> None:
         ),
     ]
     report_text = "\n".join(report) + "\n"
-    (runs := Path("runs")) .mkdir(parents=True, exist_ok=True)
+    runs = Path("runs")
+    runs.mkdir(parents=True, exist_ok=True)
     (runs / "latest_universe_report.txt").write_text(
         report_text,
         encoding="utf-8",
