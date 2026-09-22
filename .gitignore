@@ -7,5 +7,8 @@ dist/
 build/
 *.egg-info/
 results/
+results_rotation/
+results_sweep/
+results_hedge/
+.cache/
 .DS_Store
-results_rotation/\nresults_sweep/\n
