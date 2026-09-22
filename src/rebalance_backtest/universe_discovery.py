@@ -51,6 +51,7 @@ class DiscoveryConfig:
     history_calendar_days: int = 550
     min_history_sessions: int = 260
     top_n: int = 12
+    cluster_corr_threshold: float = 0.90
 
 
 def _classify_name(name: str) -> str:
@@ -260,6 +261,16 @@ def _max_drawdown(series: pd.Series, window: int = 252) -> float:
     return float(drawdown.min())
 
 
+def _peak_drawdown(series: pd.Series, window: int = 60) -> float:
+    sample = series.dropna().tail(window)
+    if len(sample) < 2:
+        return float("nan")
+    peak = float(sample.max())
+    if peak <= 0:
+        return float("nan")
+    return float(sample.iloc[-1] / peak - 1.0)
+
+
 def _simple_return(series: pd.Series, sessions: int) -> float:
     series = series.dropna()
     if len(series) <= sessions:
@@ -309,8 +320,10 @@ def score_universe(
                 "bucket": row.bucket,
                 "history_sessions": int(len(series)),
                 "momentum_score": _relative_momentum(series, safe),
+                "return_5d": _simple_return(series, 5),
                 "return_20d": _simple_return(series, 20),
                 "return_63d": _simple_return(series, 63),
+                "peak_drawdown_60d": _peak_drawdown(series, 60),
                 "annual_vol_63d": annual_vol,
                 "corr_market_126d": _market_correlation(series, market),
                 "max_drawdown_252d": _max_drawdown(series),
@@ -349,7 +362,41 @@ def score_universe(
         + 0.25 * scored.loc[defensive, "drawdown_resilience_pct"]
     )
 
-    return scored.sort_values("screen_score", ascending=False).reset_index(drop=True)
+    scored = scored.sort_values("screen_score", ascending=False).reset_index(drop=True)
+
+    # Greedy correlation clustering: near-duplicate ETFs share one cluster so
+    # the selector cannot fill several slots with effectively the same trade.
+    representatives: list[tuple[int, str]] = []
+    cluster_ids: list[int] = []
+    next_cluster = 0
+    for row in scored.itertuples(index=False):
+        ticker = str(row.ticker)
+        series = history.get(ticker)
+        assigned: int | None = None
+        if series is not None:
+            for cluster_id, representative_ticker in representatives:
+                representative = history.get(representative_ticker)
+                if representative is None:
+                    continue
+                aligned = pd.concat(
+                    [series.rename("a"), representative.rename("b")],
+                    axis=1,
+                ).dropna()
+                if len(aligned) < 64:
+                    continue
+                returns = np.log(aligned / aligned.shift(1)).dropna().tail(126)
+                corr_value = float(returns["a"].corr(returns["b"]))
+                if np.isfinite(corr_value) and corr_value >= config.cluster_corr_threshold:
+                    assigned = cluster_id
+                    break
+        if assigned is None:
+            assigned = next_cluster
+            representatives.append((assigned, ticker))
+            next_cluster += 1
+        cluster_ids.append(assigned)
+
+    scored["cluster_id"] = cluster_ids
+    return scored
 
 
 def shortlist(scored: pd.DataFrame, *, top_n: int) -> tuple[pd.DataFrame, pd.DataFrame]:
