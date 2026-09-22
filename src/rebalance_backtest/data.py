@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import time
+from datetime import date
+from pathlib import Path
 from typing import Sequence
 
 import pandas as pd
+
+
+CACHE_DIR = Path(".cache") / "rebalance_backtest"
 
 
 def _close_prices(raw: pd.DataFrame, tickers: Sequence[str]) -> pd.DataFrame:
@@ -25,6 +31,32 @@ def _close_prices(raw: pd.DataFrame, tickers: Sequence[str]) -> pd.DataFrame:
     return prices.reindex(columns=list(tickers))
 
 
+def _cache_path(tickers: Sequence[str], start: str, end: str | None) -> Path:
+    freshness = end or date.today().isoformat()
+    key = "|".join([",".join(tickers), start, freshness, "auto_adjust=true"])
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:20]
+    return CACHE_DIR / f"prices_{digest}.csv"
+
+
+def _load_cache(path: Path, tickers: Sequence[str]) -> pd.DataFrame | None:
+    if not path.exists():
+        return None
+    try:
+        cached = pd.read_csv(path, index_col=0, parse_dates=True)
+        cached = cached.reindex(columns=list(tickers))
+        if cached.empty or cached.isna().all().any():
+            return None
+        cached.index = pd.to_datetime(cached.index).tz_localize(None)
+        return cached.astype(float)
+    except Exception:
+        return None
+
+
+def _save_cache(path: Path, prices: pd.DataFrame) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    prices.to_csv(path)
+
+
 def fetch_prices(
     tickers: Sequence[str],
     start: str,
@@ -32,16 +64,21 @@ def fetch_prices(
 ) -> pd.DataFrame:
     """Download adjusted daily close prices from Yahoo Finance.
 
-    yfinance keeps a small local SQLite cache. Parallel downloads can
-    occasionally contend for that cache on Windows, so downloads are forced
-    to a single thread and retried before failing.
+    Downloads use a same-day local CSV cache so repeated rotation/sweep runs do
+    not hit Yahoo multiple times. yfinance itself uses SQLite caches; parallel
+    downloads are disabled to avoid Windows locking contention.
     """
     if not tickers:
         raise ValueError("At least one ticker is required.")
 
+    tickers = list(dict.fromkeys(tickers))
+    cache_path = _cache_path(tickers, start, end)
+    cached = _load_cache(cache_path, tickers)
+    if cached is not None:
+        return cached
+
     import yfinance as yf
 
-    tickers = list(dict.fromkeys(tickers))
     prices = pd.DataFrame()
     missing = tickers
 
@@ -81,4 +118,6 @@ def fetch_prices(
     if prices.empty:
         raise ValueError("No common trading dates remain after aligning tickers.")
 
-    return prices.astype(float)
+    prices = prices.astype(float)
+    _save_cache(cache_path, prices)
+    return prices
