@@ -138,25 +138,44 @@ class AdaptiveRotationStrategy:
         required = max(max(self.lookbacks) + 1, self.vol_window + 1, self.brake_lookback + 1)
         if len(price_history) < required:
             return None
-        missing = [ticker for ticker in self.universe if ticker not in price_history.columns]
+
+        universe = self.universe
+        missing = [ticker for ticker in universe if ticker not in price_history.columns]
         if missing:
             raise ValueError(f"Missing rotation tickers: {missing}")
 
-        prices = price_history[self.universe].astype(float)
-        log_daily = np.log(prices / prices.shift(1))
-        daily_vol = log_daily.tail(self.vol_window).std(ddof=1).clip(lower=0.0025)
-        safe = prices[self.safe_ticker]
+        # Only the latest signal window is needed. The old implementation
+        # repeatedly recalculated returns over the entire expanding history on
+        # every trading day, turning a daily backtest into unnecessary O(N^2)
+        # work. Keep the math identical but operate on a fixed NumPy window.
+        values = (
+            price_history.loc[:, universe]
+            .iloc[-required:]
+            .to_numpy(dtype=float, copy=False)
+        )
+        log_values = np.log(values)
+        log_daily = np.diff(log_values, axis=0)
+        daily_vol = np.std(log_daily[-self.vol_window :], axis=0, ddof=1)
+        daily_vol = np.maximum(daily_vol, 0.0025)
 
-        scores = pd.Series(0.0, index=self.universe, dtype=float)
+        safe_idx = universe.index(self.safe_ticker)
+        score_values = np.zeros(len(universe), dtype=float)
+
         for h, coeff in zip(self.lookbacks, self.lookback_weights):
-            asset_log_return = np.log(prices.iloc[-1] / prices.iloc[-(h + 1)])
-            safe_log_return = float(np.log(safe.iloc[-1] / safe.iloc[-(h + 1)]))
+            asset_log_return = log_values[-1] - log_values[-(h + 1)]
+            safe_log_return = float(asset_log_return[safe_idx])
             excess = asset_log_return - safe_log_return
-            scores += coeff * (excess / (daily_vol * np.sqrt(h)))
+            score_values += coeff * (excess / (daily_vol * np.sqrt(h)))
 
-        scores = scores.replace([np.inf, -np.inf], np.nan).fillna(0.0)
-        scores[self.safe_ticker] = 0.0
-        return scores.clip(lower=-self.score_clip, upper=self.score_clip)
+        score_values = np.nan_to_num(
+            score_values,
+            nan=0.0,
+            posinf=self.score_clip,
+            neginf=-self.score_clip,
+        )
+        score_values[safe_idx] = 0.0
+        score_values = np.clip(score_values, -self.score_clip, self.score_clip)
+        return pd.Series(score_values, index=universe, dtype=float)
 
     def _market_score(self, scores: pd.Series) -> float:
         broad = float(scores[self.market_ticker])
@@ -165,9 +184,9 @@ class AdaptiveRotationStrategy:
         return self.market_weight * broad + self.sector_breadth_weight * breadth
 
     def _short_return(self, price_history: pd.DataFrame) -> float:
-        market = price_history[self.market_ticker].astype(float)
-        if len(market) <= self.brake_lookback:
+        if len(price_history) <= self.brake_lookback:
             return 0.0
+        market = price_history[self.market_ticker]
         return float(market.iloc[-1] / market.iloc[-(self.brake_lookback + 1)] - 1.0)
 
     def _stock_target_from_score(self, market_score: float) -> float:
