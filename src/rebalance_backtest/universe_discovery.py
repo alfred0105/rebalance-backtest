@@ -412,12 +412,14 @@ def shortlist(scored: pd.DataFrame, *, top_n: int) -> tuple[pd.DataFrame, pd.Dat
     aggressive = (
         scored.loc[scored["bucket"] == "EQUITY"]
         .sort_values(["screen_score", "momentum_score"], ascending=False)
+        .drop_duplicates("cluster_id", keep="first")
         .head(top_n)
         .copy()
     )
     defensive = (
         scored.loc[scored["bucket"].isin(["DEFENSIVE", "REAL_ASSET"])]
         .sort_values(["screen_score", "momentum_score"], ascending=False)
+        .drop_duplicates("cluster_id", keep="first")
         .head(top_n)
         .copy()
     )
