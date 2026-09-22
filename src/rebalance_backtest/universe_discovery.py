@@ -320,6 +320,7 @@ def score_universe(
                 "bucket": row.bucket,
                 "history_sessions": int(len(series)),
                 "momentum_score": _relative_momentum(series, safe),
+                "return_1d": _simple_return(series, 1),
                 "return_5d": _simple_return(series, 5),
                 "return_20d": _simple_return(series, 20),
                 "return_63d": _simple_return(series, 63),
