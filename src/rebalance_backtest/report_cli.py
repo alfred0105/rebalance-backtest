@@ -134,8 +134,18 @@ def _image_uri(fig) -> str:
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-def _equity_chart(rotation_curves: pd.DataFrame, hedge_curve: pd.DataFrame) -> str | None:
-    if rotation_curves.empty and hedge_curve.empty:
+def _equity_chart(
+    rotation_curves: pd.DataFrame,
+    hedge_curve: pd.DataFrame,
+    integer_adaptive: pd.DataFrame,
+    integer_peak: pd.DataFrame,
+) -> str | None:
+    if (
+        rotation_curves.empty
+        and hedge_curve.empty
+        and integer_adaptive.empty
+        and integer_peak.empty
+    ):
         return None
     fig, ax = plt.subplots(figsize=(11, 4.8))
     if not rotation_curves.empty:
@@ -144,6 +154,20 @@ def _equity_chart(rotation_curves: pd.DataFrame, hedge_curve: pd.DataFrame) -> s
     if not hedge_curve.empty:
         col = hedge_curve.columns[0]
         ax.plot(hedge_curve.index, hedge_curve[col], label="peak_hedge")
+    if not integer_adaptive.empty:
+        ax.plot(
+            integer_adaptive.index,
+            integer_adaptive.iloc[:, 0],
+            label="adaptive_whole_shares",
+            linestyle="--",
+        )
+    if not integer_peak.empty:
+        ax.plot(
+            integer_peak.index,
+            integer_peak.iloc[:, 0],
+            label="peak_hedge_whole_shares",
+            linestyle="--",
+        )
     ax.set_title("Portfolio value over time")
     ax.set_ylabel("KRW")
     ax.legend(loc="best", fontsize=8)
@@ -328,7 +352,32 @@ def main() -> None:
     hedge_trades = _read_csv(Path("results_hedge/trades_peak_hedge.csv"))
     hedge_summary = _read_csv(Path("results_hedge/hedge_summary.csv"), index_col=0)
 
-    trade_log = _explode_trade_log(rotation_trades, names)
+    integer_adaptive_equity = _read_csv(
+        Path("results_rotation/integer_adaptive_equity.csv")
+    )
+    integer_adaptive_trades = _read_csv(
+        Path("results_rotation/integer_adaptive_trades.csv")
+    )
+    integer_adaptive_summary = _read_csv(
+        Path("results_rotation/integer_adaptive_summary.csv"),
+        index_col=0,
+    )
+    integer_peak_equity = _read_csv(
+        Path("results_hedge/integer_peak_hedge_equity.csv")
+    )
+    integer_peak_trades = _read_csv(
+        Path("results_hedge/integer_peak_hedge_trades.csv")
+    )
+    integer_peak_summary = _read_csv(
+        Path("results_hedge/integer_peak_hedge_summary.csv"),
+        index_col=0,
+    )
+
+    trade_log = (
+        integer_adaptive_trades.reset_index()
+        if not integer_adaptive_trades.empty
+        else _explode_trade_log(rotation_trades, names)
+    )
     trade_log_path = Path("runs/latest_trade_log.csv")
     trade_log.to_csv(trade_log_path, index=False)
 
@@ -342,18 +391,31 @@ def main() -> None:
     else:
         print("(no selector changes)")
     print("\n=== Recent strategy trades ===")
-    recent = _explode_trade_log(rotation_trades, names, limit=12)
+    if not integer_adaptive_trades.empty:
+        recent = integer_adaptive_trades.tail(12).reset_index()
+    else:
+        recent = _explode_trade_log(rotation_trades, names, limit=12)
     if recent.empty:
         print("(no recorded trades)")
     else:
         shown = recent.copy()
-        shown["date"] = shown["date"].dt.strftime("%Y-%m-%d")
-        shown["delta_weight"] = shown["delta_weight"].map(lambda x: f"{x:+.1%}")
-        shown["turnover"] = shown["turnover"].map(lambda x: f"{x:.1%}")
-        shown["cost"] = shown["cost"].map(lambda x: f"{x:,.0f}")
+        shown["date"] = pd.to_datetime(shown["date"]).dt.strftime("%Y-%m-%d")
+        if "delta_weight" in shown:
+            shown["delta_weight"] = shown["delta_weight"].map(lambda x: f"{x:+.1%}")
+        if "turnover" in shown:
+            shown["turnover"] = shown["turnover"].map(lambda x: f"{x:.1%}")
+        if "cost" in shown:
+            shown["cost"] = shown["cost"].map(lambda x: f"{x:,.0f}")
+        if "cost_event" in shown:
+            shown["cost_event"] = shown["cost_event"].map(lambda x: f"{x:,.0f}")
         print(shown.to_string(index=False))
 
-    eq_img = _equity_chart(rotation_curves, hedge_curve)
+    eq_img = _equity_chart(
+        rotation_curves,
+        hedge_curve,
+        integer_adaptive_equity,
+        integer_peak_equity,
+    )
     dd_img = _drawdown_chart(rotation_curves, hedge_curve)
     weights_img = _weights_chart(rotation_weights)
     turnover_img = _turnover_chart(rotation_trades)
@@ -372,8 +434,10 @@ def main() -> None:
 
     metrics_rows = []
     for label, frame, key in [
-        ("Adaptive Rotation", rotation_summary, "adaptive_rotation_daily"),
-        ("Peak + Hedge", hedge_summary, "peak_hedge"),
+        ("Adaptive Rotation (fractional)", rotation_summary, "adaptive_rotation_daily"),
+        ("Adaptive Rotation (whole shares)", integer_adaptive_summary, "adaptive_rotation_whole_shares"),
+        ("Peak + Hedge (fractional)", hedge_summary, "peak_hedge"),
+        ("Peak + Hedge (whole shares)", integer_peak_summary, "peak_hedge_whole_shares"),
         ("Peak only", hedge_summary, "peak_only"),
     ]:
         if frame.empty or key not in frame.index:
@@ -450,14 +514,14 @@ def main() -> None:
 <div class="scroll">{event_html}</div></section>
 
 <section class="card"><h2>Historical buy / sell timeline</h2>
-<p class="muted">과거 백테스트의 실제 주식 수가 아니라 목표 비중 변화 기준 BUY/SELL 로그다.</p>
+<p class="muted">가능하면 30만원 whole-share replay의 실제 BUY/SELL 주식 수를 표시한다. 데이터가 없을 때만 목표 비중 변화 로그를 사용한다.</p>
 <div class="scroll">{recent_html}</div></section>
 
 <section class="card"><h2>How the engine is operating</h2>
 <p>Market emergency: <code>{html.escape(str(active.get('market_emergency')))}</code> ·
 Peak lock: <code>{html.escape(str(allocation.get('peak_lock')))}</code> ·
 Peak DD 60d: <code>{float(allocation.get('peak_drawdown_60d',0)):.1%}</code></p>
-<p class="muted">Historical strategy curves remain fractional-weight backtests for comparability. The 300k table above is a separate whole-share execution feasibility layer.</p>
+<p class="muted">Fractional curves preserve strategy comparability. Whole-share replay keeps the same strategy signals but executes them with integer ETF shares, exposing small-capital tracking error and residual cash.</p>
 </section>
 </main></body></html>"""
 
