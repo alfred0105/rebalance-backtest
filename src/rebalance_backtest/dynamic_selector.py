@@ -17,10 +17,19 @@ class DynamicSelectionConfig:
     cooldown_business_days: int = 5
     replacement_score_margin: float = 0.15
 
+    # Emergency logic: absolute floors plus volatility-aware thresholds.
     emergency_return_1d: float = -0.05
     emergency_return_5d: float = -0.08
     emergency_peak_drawdown_60d: float = -0.10
     emergency_momentum_floor: float = 0.0
+    emergency_vol_sigma_1d: float = 3.0
+    emergency_vol_sigma_5d: float = 2.5
+    catastrophic_return_1d: float = -0.10
+    catastrophic_return_5d: float = -0.15
+
+    # A cooldown is a minimum wait. Re-entry also requires recovery.
+    reentry_min_momentum: float = 0.0
+    reentry_min_return_5d: float = 0.0
 
     market_emergency_return_5d: float = -0.06
     market_emergency_return_20d: float = -0.08
@@ -28,18 +37,39 @@ class DynamicSelectionConfig:
     defensive_market_corr_max: float = 0.60
     defensive_min_annual_vol: float = 0.01
 
+    # Concentration and small-capital implementation constraints.
+    max_same_theme: int = 1
+    execution_capital: float = 300_000.0
+    aggressive_slot_target_weight: float = 0.15
+    defensive_slot_target_weight: float = 0.05
+    max_initial_overweight_pp: float = 0.04
+
+    # Risk-state recovery after a peak lock / market emergency.
+    recovery_stage_days: int = 3
+    recovery_1_cap: float = 0.50
+    recovery_2_cap: float = 0.65
+    recovery_3_cap: float = 0.80
+
+    # Defensive sleeve roles.
+    safe_min_weight: float = 0.03
+    diversifier_max_total: float = 0.05
+    hedge_max_total: float = 0.15
+    defensive_single_max: float = 0.35
+
     market_ticker: str = "069500.KS"
     safe_ticker: str = "153130.KS"
 
 
 def empty_state() -> dict[str, Any]:
     return {
-        "version": 1,
+        "version": 2,
         "last_run_date": None,
         "last_selection_month": None,
         "aggressive": [],
         "defensive": [],
         "cooldowns": {},
+        "risk_state": "NORMAL",
+        "risk_state_counter": 0,
     }
 
 
@@ -55,6 +85,8 @@ def load_state(path: Path) -> dict[str, Any]:
     base["aggressive"] = list(base.get("aggressive") or [])
     base["defensive"] = list(base.get("defensive") or [])
     base["cooldowns"] = dict(base.get("cooldowns") or {})
+    base["risk_state"] = str(base.get("risk_state") or "NORMAL")
+    base["risk_state_counter"] = int(base.get("risk_state_counter") or 0)
     return base
 
 
@@ -76,17 +108,6 @@ def _business_days_held(entered: str, as_of: pd.Timestamp) -> int:
 
 def _cooldown_until(as_of: pd.Timestamp, business_days: int) -> str:
     return (as_of + pd.offsets.BDay(business_days)).date().isoformat()
-
-
-def _cooldown_active(
-    ticker: str,
-    cooldowns: dict[str, str],
-    as_of: pd.Timestamp,
-) -> bool:
-    until = cooldowns.get(ticker)
-    if not until:
-        return False
-    return as_of.normalize() <= pd.Timestamp(until)
 
 
 def _row_map(scored: pd.DataFrame) -> dict[str, pd.Series]:
@@ -121,6 +142,26 @@ def _market_emergency(
     return False, None
 
 
+def _adaptive_emergency_thresholds(
+    row: pd.Series,
+    config: DynamicSelectionConfig,
+) -> tuple[float, float]:
+    annual_vol = _finite(row.get("annual_vol_63d"))
+    if not np.isfinite(annual_vol) or annual_vol <= 0:
+        return config.emergency_return_1d, config.emergency_return_5d
+
+    daily_vol = annual_vol / np.sqrt(252.0)
+    one_day = -max(
+        abs(config.emergency_return_1d),
+        config.emergency_vol_sigma_1d * daily_vol,
+    )
+    five_day = -max(
+        abs(config.emergency_return_5d),
+        config.emergency_vol_sigma_5d * daily_vol * np.sqrt(5.0),
+    )
+    return float(one_day), float(five_day)
+
+
 def _individual_emergency_reason(
     row: pd.Series | None,
     config: DynamicSelectionConfig,
@@ -133,10 +174,16 @@ def _individual_emergency_reason(
     peak_dd = _finite(row.get("peak_drawdown_60d"))
     momentum = _finite(row.get("momentum_score"))
 
-    if np.isfinite(r1) and r1 <= config.emergency_return_1d:
-        return f"1D_DROP_{r1:.1%}"
-    if np.isfinite(r5) and r5 <= config.emergency_return_5d:
-        return f"5D_DROP_{r5:.1%}"
+    if np.isfinite(r1) and r1 <= config.catastrophic_return_1d:
+        return f"1D_HARD_STOP_{r1:.1%}"
+    if np.isfinite(r5) and r5 <= config.catastrophic_return_5d:
+        return f"5D_HARD_STOP_{r5:.1%}"
+
+    threshold_1d, threshold_5d = _adaptive_emergency_thresholds(row, config)
+    if np.isfinite(r1) and r1 <= threshold_1d:
+        return f"1D_VOL_SHOCK_{r1:.1%}_TH_{threshold_1d:.1%}"
+    if np.isfinite(r5) and r5 <= threshold_5d:
+        return f"5D_VOL_SHOCK_{r5:.1%}_TH_{threshold_5d:.1%}"
     if (
         np.isfinite(peak_dd)
         and peak_dd <= config.emergency_peak_drawdown_60d
@@ -145,6 +192,59 @@ def _individual_emergency_reason(
     ):
         return f"PEAK_BREAK_{peak_dd:.1%}_MOM_{momentum:.2f}"
     return None
+
+
+def _recovery_confirmed(
+    row: pd.Series | None,
+    config: DynamicSelectionConfig,
+) -> bool:
+    if row is None:
+        return False
+    momentum = _finite(row.get("momentum_score"))
+    r5 = _finite(row.get("return_5d"))
+    if not np.isfinite(momentum) or not np.isfinite(r5):
+        return False
+    if momentum <= config.reentry_min_momentum:
+        return False
+    if r5 <= config.reentry_min_return_5d:
+        return False
+    return _individual_emergency_reason(row, config) is None
+
+
+def _cooldown_blocked(
+    ticker: str,
+    row: pd.Series | None,
+    cooldowns: dict[str, str],
+    as_of: pd.Timestamp,
+    config: DynamicSelectionConfig,
+) -> bool:
+    until = cooldowns.get(ticker)
+    if not until:
+        return False
+    if as_of.normalize() <= pd.Timestamp(until):
+        return True
+    # Cooldown expiry is only the minimum wait. Re-entry still requires
+    # positive short-term recovery.
+    return not _recovery_confirmed(row, config)
+
+
+def _candidate_affordable(
+    row: pd.Series,
+    bucket: str,
+    config: DynamicSelectionConfig,
+) -> bool:
+    if config.execution_capital <= 0:
+        return True
+    price = _finite(row.get("price_listing"), 0.0)
+    if price <= 0:
+        return True
+    target = (
+        config.aggressive_slot_target_weight
+        if bucket == "aggressive"
+        else config.defensive_slot_target_weight
+    )
+    max_one_share_weight = target + config.max_initial_overweight_pp
+    return price / config.execution_capital <= max_one_share_weight + 1e-12
 
 
 def _deduped_pool(
@@ -163,8 +263,14 @@ def _deduped_pool(
         ].copy()
         corr = pd.to_numeric(pool["corr_market_126d"], errors="coerce")
         vol = pd.to_numeric(pool["annual_vol_63d"], errors="coerce")
+        role = (
+            pool["defensive_role"].astype(str)
+            if "defensive_role" in pool.columns
+            else pd.Series("HEDGE", index=pool.index)
+        )
         pool = pool.loc[
             (pool["ticker"] != config.safe_ticker)
+            & (role != "SAFE")
             & ((corr <= config.defensive_market_corr_max) | corr.isna())
             & ((vol >= config.defensive_min_annual_vol) | vol.isna())
         ].copy()
@@ -188,7 +294,10 @@ def _holding_from_row(row: pd.Series, as_of: pd.Timestamp) -> dict[str, Any]:
         "name": str(row.get("name", row["ticker"])),
         "entered": as_of.date().isoformat(),
         "cluster_id": int(row.get("cluster_id", -1)),
+        "theme": str(row.get("theme", "OTHER")),
+        "defensive_role": str(row.get("defensive_role", "RISK")),
         "last_score": _finite(row.get("screen_score"), -999.0),
+        "price_listing": _finite(row.get("price_listing"), 0.0),
     }
 
 
@@ -200,6 +309,14 @@ def _refresh_holding_metadata(
     if row is not None:
         updated["name"] = str(row.get("name", updated.get("name", updated["ticker"])))
         updated["cluster_id"] = int(row.get("cluster_id", updated.get("cluster_id", -1)))
+        updated["theme"] = str(row.get("theme", updated.get("theme", "OTHER")))
+        updated["defensive_role"] = str(
+            row.get("defensive_role", updated.get("defensive_role", "RISK"))
+        )
+        updated["price_listing"] = _finite(
+            row.get("price_listing"),
+            float(updated.get("price_listing", 0.0)),
+        )
         updated["last_score"] = _finite(
             row.get("screen_score"),
             float(updated.get("last_score", -999.0)),
@@ -257,6 +374,7 @@ def _eligible_candidates(
     cooldowns: dict[str, str],
     as_of: pd.Timestamp,
     config: DynamicSelectionConfig,
+    bucket: str,
 ) -> list[pd.Series]:
     held_tickers = {str(item["ticker"]) for item in holdings}
     held_clusters = {
@@ -264,15 +382,36 @@ def _eligible_candidates(
         for item in holdings
         if int(item.get("cluster_id", -1)) >= 0
     }
+    theme_counts: dict[str, int] = {}
+    for item in holdings:
+        theme = str(item.get("theme", "OTHER"))
+        if theme not in {"OTHER", "BROAD_MARKET"}:
+            theme_counts[theme] = theme_counts.get(theme, 0) + 1
+
     candidates: list[pd.Series] = []
     for _, row in pool.iterrows():
         ticker = str(row["ticker"])
         cluster_id = int(row.get("cluster_id", -1))
+        theme = str(row.get("theme", "OTHER"))
+
         if ticker in held_tickers:
             continue
         if cluster_id >= 0 and cluster_id in held_clusters:
             continue
-        if _cooldown_active(ticker, cooldowns, as_of):
+        if (
+            theme not in {"OTHER", "BROAD_MARKET"}
+            and theme_counts.get(theme, 0) >= config.max_same_theme
+        ):
+            continue
+        if not _candidate_affordable(row, bucket, config):
+            continue
+        if _cooldown_blocked(
+            ticker,
+            row,
+            cooldowns,
+            as_of,
+            config,
+        ):
             continue
         if _individual_emergency_reason(row, config) is not None:
             continue
@@ -298,6 +437,7 @@ def _fill_empty_slots(
             cooldowns=cooldowns,
             as_of=as_of,
             config=config,
+            bucket=bucket,
         )
         if not candidates:
             break
@@ -310,6 +450,8 @@ def _fill_empty_slots(
                 "bucket": bucket,
                 "ticker": holding["ticker"],
                 "name": holding["name"],
+                "theme": holding["theme"],
+                "defensive_role": holding["defensive_role"],
                 "score": holding["last_score"],
             }
         )
@@ -339,6 +481,7 @@ def _monthly_replace(
             cooldowns=cooldowns,
             as_of=as_of,
             config=config,
+            bucket=bucket,
         )
         if not candidates:
             break
@@ -369,6 +512,29 @@ def _monthly_replace(
             break
 
         holdings.remove(incumbent)
+        # Re-check after removing the incumbent because its theme/cluster no
+        # longer consumes a slot.
+        refreshed = _eligible_candidates(
+            pool,
+            holdings=holdings,
+            cooldowns=cooldowns,
+            as_of=as_of,
+            config=config,
+            bucket=bucket,
+        )
+        if not refreshed:
+            holdings.append(incumbent)
+            break
+        challenger = refreshed[0]
+        challenger_score = _finite(challenger.get("screen_score"), -999.0)
+        if (
+            not incumbent_missing
+            and challenger_score
+            < incumbent_score + config.replacement_score_margin
+        ):
+            holdings.append(incumbent)
+            break
+
         new_holding = _holding_from_row(challenger, as_of)
         holdings.append(new_holding)
         events.append(
@@ -381,10 +547,27 @@ def _monthly_replace(
                 "in": new_holding["ticker"],
                 "in_name": new_holding["name"],
                 "in_score": challenger_score,
+                "theme": new_holding["theme"],
                 "margin": challenger_score - incumbent_score,
             }
         )
     return holdings
+
+
+def _clean_recovered_cooldowns(
+    cooldowns: dict[str, str],
+    rows: dict[str, pd.Series],
+    as_of: pd.Timestamp,
+    config: DynamicSelectionConfig,
+) -> dict[str, str]:
+    output: dict[str, str] = {}
+    for ticker, until in cooldowns.items():
+        if as_of.normalize() <= pd.Timestamp(until):
+            output[ticker] = until
+            continue
+        if not _recovery_confirmed(rows.get(ticker), config):
+            output[ticker] = until
+    return output
 
 
 def select_dynamic_universe(
@@ -406,13 +589,6 @@ def select_dynamic_universe(
     rows = _row_map(scored)
     events: list[dict[str, Any]] = []
     cooldowns = dict(state.get("cooldowns") or {})
-
-    # Remove expired cooldowns so state remains compact.
-    cooldowns = {
-        ticker: until
-        for ticker, until in cooldowns.items()
-        if as_of.normalize() <= pd.Timestamp(until)
-    }
 
     market_emergency, market_reason = _market_emergency(rows, config)
 
@@ -488,13 +664,22 @@ def select_dynamic_universe(
         bucket="defensive",
     )
 
+    cooldowns = _clean_recovered_cooldowns(
+        cooldowns,
+        rows,
+        as_of,
+        config,
+    )
+
     new_state = {
-        "version": 1,
+        "version": 2,
         "last_run_date": as_of.date().isoformat(),
         "last_selection_month": month_key,
         "aggressive": aggressive,
         "defensive": defensive,
         "cooldowns": cooldowns,
+        "risk_state": str(state.get("risk_state") or "NORMAL"),
+        "risk_state_counter": int(state.get("risk_state_counter") or 0),
     }
 
     active = {
@@ -511,15 +696,165 @@ def select_dynamic_universe(
     return new_state, active
 
 
+def _peak_cap(drawdown: float) -> float:
+    if drawdown <= -0.10:
+        return 0.35
+    if drawdown <= -0.08:
+        return 0.50
+    if drawdown <= -0.06:
+        return 0.65
+    return 0.80
+
+
+def _next_risk_state(
+    *,
+    previous_state: dict[str, Any] | None,
+    market_emergency: bool,
+    peak_condition: bool,
+    healthy_recovery: bool,
+    deep_drawdown: bool,
+    config: DynamicSelectionConfig,
+) -> tuple[str, int]:
+    previous_state = previous_state or {}
+    previous_version = int(previous_state.get("version") or 1)
+    state = str(previous_state.get("risk_state") or "NORMAL")
+    counter = int(previous_state.get("risk_state_counter") or 0)
+
+    if market_emergency:
+        return "EMERGENCY", 0
+    if peak_condition:
+        return "PEAK_LOCK", 0
+
+    # Migrating an old state while the market is still far below its 60d peak
+    # starts cautiously rather than jumping straight to 90% equity.
+    if previous_version < 2 and deep_drawdown:
+        return ("RECOVERY_2", 0) if healthy_recovery else ("PEAK_LOCK", 0)
+
+    recovery_states = {
+        "EMERGENCY",
+        "PEAK_LOCK",
+        "RECOVERY_1",
+        "RECOVERY_2",
+        "RECOVERY_3",
+    }
+    if state not in recovery_states:
+        return "NORMAL", 0
+
+    if not healthy_recovery:
+        return state, 0
+
+    if state in {"EMERGENCY", "PEAK_LOCK"}:
+        return "RECOVERY_1", 1
+
+    counter += 1
+    if counter < config.recovery_stage_days:
+        return state, counter
+
+    if state == "RECOVERY_1":
+        return "RECOVERY_2", 0
+    if state == "RECOVERY_2":
+        return "RECOVERY_3", 0
+    if state == "RECOVERY_3":
+        return "NORMAL", 0
+    return "NORMAL", 0
+
+
+def _role_capped_defensive_weights(
+    ranked: list[pd.Series],
+    total_target: float,
+    config: DynamicSelectionConfig,
+) -> dict[str, float]:
+    if not ranked or total_target <= 0:
+        return {}
+
+    scores = np.asarray(
+        [max(0.0, _finite(row.get("momentum_score"), 0.0)) for row in ranked],
+        dtype=float,
+    )
+    if scores.sum() <= 0:
+        return {}
+
+    raw = total_target * scores / scores.sum()
+    weights = {
+        str(row["ticker"]): min(float(weight), config.defensive_single_max)
+        for row, weight in zip(ranked, raw)
+    }
+
+    def role_of(row: pd.Series) -> str:
+        return str(row.get("defensive_role", "HEDGE"))
+
+    rows_by_ticker = {str(row["ticker"]): row for row in ranked}
+
+    for role, cap in (
+        ("DIVERSIFIER", config.diversifier_max_total),
+        ("HEDGE", config.hedge_max_total),
+    ):
+        tickers = [
+            ticker
+            for ticker, row in rows_by_ticker.items()
+            if role_of(row) == role
+        ]
+        role_total = sum(weights.get(ticker, 0.0) for ticker in tickers)
+        if role_total > cap and role_total > 0:
+            scale = cap / role_total
+            for ticker in tickers:
+                weights[ticker] *= scale
+
+    # Redistribute any leftover only into names with role/single-name room.
+    for _ in range(3):
+        assigned = sum(weights.values())
+        leftover = total_target - assigned
+        if leftover <= 1e-12:
+            break
+
+        room: dict[str, float] = {}
+        role_totals: dict[str, float] = {}
+        for ticker, weight in weights.items():
+            role = role_of(rows_by_ticker[ticker])
+            role_totals[role] = role_totals.get(role, 0.0) + weight
+
+        for ticker, row in rows_by_ticker.items():
+            role = role_of(row)
+            role_cap = (
+                config.diversifier_max_total
+                if role == "DIVERSIFIER"
+                else config.hedge_max_total
+            )
+            role_room = max(0.0, role_cap - role_totals.get(role, 0.0))
+            single_room = max(
+                0.0,
+                config.defensive_single_max - weights.get(ticker, 0.0),
+            )
+            room[ticker] = min(role_room, single_room)
+
+        total_room = sum(room.values())
+        if total_room <= 1e-12:
+            break
+        for ticker, available in room.items():
+            if available <= 0:
+                continue
+            addition = min(leftover * available / total_room, available)
+            weights[ticker] = weights.get(ticker, 0.0) + addition
+
+    return {
+        ticker: float(weight)
+        for ticker, weight in weights.items()
+        if weight > 1e-12
+    }
+
+
 def build_dynamic_target_allocation(
     scored: pd.DataFrame,
     active: dict[str, Any],
     *,
     config: DynamicSelectionConfig | None = None,
+    previous_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Combine dynamic security selection with the existing risk-allocation logic.
+    """Build the live ideal allocation for the dynamically selected universe.
 
-    This is an ideal research allocation, not a brokerage execution state.
+    Historical validation still requires dated universes. This function is the
+    forward/live allocation engine and records the risk-state machine so the
+    portfolio cannot jump directly from a crash state to full risk.
     """
     config = config or DynamicSelectionConfig()
     rows = _row_map(scored)
@@ -547,28 +882,45 @@ def build_dynamic_target_allocation(
         [0.00, 0.15, 0.35, 0.60, 0.75, 0.90],
         dtype=float,
     )
-    stock_target = float(
+    raw_stock_target = float(
         np.interp(market_score, stock_score_points, stock_target_points)
     )
-    stock_target = float(np.clip(stock_target, 0.0, 0.90))
+    raw_stock_target = float(np.clip(raw_stock_target, 0.0, 0.90))
 
     peak_dd = _finite(market.get("peak_drawdown_60d"), 0.0)
     short_return = _finite(market.get("return_20d"), 0.0)
-    peak_lock = False
-    if peak_dd <= -0.04 and (short_return <= 0.0 or breadth <= 0.0):
-        peak_lock = True
-        if peak_dd <= -0.10:
-            stock_target = min(stock_target, 0.35)
-        elif peak_dd <= -0.08:
-            stock_target = min(stock_target, 0.50)
-        elif peak_dd <= -0.06:
-            stock_target = min(stock_target, 0.65)
-        else:
-            stock_target = min(stock_target, 0.80)
-
     market_emergency = bool(active.get("market_emergency"))
-    if market_emergency:
+
+    peak_condition = (
+        peak_dd <= -0.04
+        and (short_return <= 0.0 or breadth <= 0.0)
+    )
+    healthy_recovery = (
+        short_return > 0.0
+        and breadth > 0.0
+        and market_score > 0.0
+        and not market_emergency
+    )
+    risk_state, risk_state_counter = _next_risk_state(
+        previous_state=previous_state,
+        market_emergency=market_emergency,
+        peak_condition=peak_condition,
+        healthy_recovery=healthy_recovery,
+        deep_drawdown=peak_dd <= -0.10,
+        config=config,
+    )
+
+    stock_target = raw_stock_target
+    if market_emergency or risk_state == "EMERGENCY":
         stock_target = min(stock_target, 0.35)
+    elif risk_state == "PEAK_LOCK":
+        stock_target = min(stock_target, _peak_cap(peak_dd))
+    elif risk_state == "RECOVERY_1":
+        stock_target = min(stock_target, config.recovery_1_cap)
+    elif risk_state == "RECOVERY_2":
+        stock_target = min(stock_target, config.recovery_2_cap)
+    elif risk_state == "RECOVERY_3":
+        stock_target = min(stock_target, config.recovery_3_cap)
 
     defensive_rows = [
         rows[ticker]
@@ -580,15 +932,22 @@ def build_dynamic_target_allocation(
         for row in defensive_rows
         if _finite(row.get("momentum_score"), -999.0) > 0
     ]
+    positive_defensive = sorted(
+        positive_defensive,
+        key=lambda row: _finite(row.get("momentum_score"), 0.0),
+        reverse=True,
+    )[: config.defensive_slots]
+
     best_defensive = max(
         [_finite(row.get("momentum_score"), 0.0) for row in positive_defensive],
         default=0.0,
     )
 
     residual = max(0.0, 1.0 - stock_target)
+    safe_floor = min(residual, config.safe_min_weight)
+    defensive_budget = max(0.0, residual - safe_floor)
     defensive_strength = float(np.clip(best_defensive / 0.30, 0.0, 1.0))
-    defensive_target = residual * 0.90 * defensive_strength
-    safe_target = 1.0 - stock_target - defensive_target
+    requested_defensive = defensive_budget * defensive_strength
 
     weights: dict[str, float] = {}
 
@@ -609,39 +968,17 @@ def build_dynamic_target_allocation(
         else:
             weights[config.market_ticker] = stock_target
 
-    if defensive_target > 0 and positive_defensive:
-        ranked = sorted(
-            positive_defensive,
-            key=lambda row: _finite(row.get("momentum_score"), 0.0),
-            reverse=True,
-        )[:2]
-        scores = np.asarray(
-            [_finite(row.get("momentum_score"), 0.0) for row in ranked],
-            dtype=float,
-        )
-        if scores.sum() > 0:
-            raw = defensive_target * scores / scores.sum()
-            raw = np.minimum(raw, 0.35)
-            assigned = float(raw.sum())
-            leftover = max(0.0, defensive_target - assigned)
-            if leftover > 1e-12:
-                room = np.maximum(0.0, 0.35 - raw)
-                if room.sum() > 0:
-                    extra = np.minimum(leftover * room / room.sum(), room)
-                    raw += extra
-            for row, weight in zip(ranked, raw):
-                if weight > 1e-12:
-                    weights[str(row["ticker"])] = float(weight)
+    defensive_weights = _role_capped_defensive_weights(
+        positive_defensive,
+        requested_defensive,
+        config,
+    )
+    weights.update(defensive_weights)
 
     assigned_total = float(sum(weights.values()))
     actual_safe = max(0.0, 1.0 - assigned_total)
     weights[config.safe_ticker] = actual_safe
-    actual_defensive = float(
-        sum(
-            weights.get(ticker, 0.0)
-            for ticker in active.get("defensive", [])
-        )
-    )
+    actual_defensive = float(sum(defensive_weights.values()))
 
     return {
         "market_score": market_score,
@@ -649,8 +986,11 @@ def build_dynamic_target_allocation(
         "breadth": breadth,
         "peak_drawdown_60d": peak_dd,
         "return_20d": short_return,
-        "peak_lock": peak_lock,
+        "peak_lock": risk_state == "PEAK_LOCK",
         "market_emergency": market_emergency,
+        "risk_state": risk_state,
+        "risk_state_counter": risk_state_counter,
+        "raw_stock_target": raw_stock_target,
         "stock_target": stock_target,
         "defensive_target": actual_defensive,
         "safe_target": actual_safe,
