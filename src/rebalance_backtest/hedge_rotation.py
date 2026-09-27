@@ -46,7 +46,7 @@ class PeakHedgeRotationStrategy(AdaptiveRotationStrategy):
     defensive_top_n: int = 2
     defensive_max_fraction_of_residual: float = 0.90
     defensive_max_weight: float = 0.35
-    defensive_step: float = 0.20
+    defensive_step: float = 0.15
 
     def __post_init__(self) -> None:
         super().__post_init__()
