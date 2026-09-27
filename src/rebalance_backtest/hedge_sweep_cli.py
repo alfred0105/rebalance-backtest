@@ -152,6 +152,13 @@ def main() -> None:
     summary.index.name = "variant"
     summary.to_csv(out / "hedge_summary.csv")
 
+    # Persist the main peak+hedge path so the HTML/terminal report can show
+    # when trades happened, how weights changed, and how the portfolio evolved.
+    peak_result = results["peak_hedge"]
+    peak_result.equity_curve.to_csv(out / "equity_peak_hedge.csv")
+    peak_result.weights.to_csv(out / "weights_peak_hedge.csv")
+    peak_result.trades.to_csv(out / "trades_peak_hedge.csv")
+
     ranked = summary.loc[
         [
             "broad_signal",
