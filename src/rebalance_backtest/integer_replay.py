@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from .backtest import BacktestResult
+from .costs import TOSS_KRX_COMMISSION_BPS, toss_krx_commissions_by_ticker
 from .metrics import performance_metrics
 
 
@@ -68,7 +69,7 @@ def replay_fractional_targets_as_whole_shares(
     fractional: BacktestResult,
     *,
     initial_capital: float,
-    transaction_cost_bps: float,
+    transaction_cost_bps: float = TOSS_KRX_COMMISSION_BPS,
 ) -> IntegerReplayResult:
     """Replay an existing strategy's target changes using whole ETF shares.
 
@@ -144,12 +145,33 @@ def replay_fractional_targets_as_whole_shares(
                 float((desired_weights - current_weights).abs().sum())
                 + abs(desired_cash_weight - current_cash_weight)
             )
-            cost = equity_before_trade * turnover * transaction_cost_bps / 10_000.0
+
+            def execution_costs(
+                proposed: pd.Series,
+            ) -> tuple[pd.Series, pd.Series, float, float, float]:
+                proposed_delta = proposed - shares
+                notionals = proposed_delta.abs().astype(float) * px.astype(float)
+                commissions = toss_krx_commissions_by_ticker(
+                    notionals,
+                    commission_bps=transaction_cost_bps,
+                )
+                buy_notional = float(notionals.loc[proposed_delta > 0].sum())
+                sell_notional = float(notionals.loc[proposed_delta < 0].sum())
+                return (
+                    proposed_delta,
+                    commissions,
+                    float(commissions.sum()),
+                    buy_notional,
+                    sell_notional,
+                )
+
+            delta, commissions, cost, buy_notional, sell_notional = execution_costs(
+                desired
+            )
             post_cash = desired_cash - cost
 
-            # Transaction costs are tiny at the configured bps, but if the
-            # optimizer used essentially all cash, remove purchases until the
-            # account cannot go negative.
+            # If commissions push cash slightly negative, remove purchases
+            # until the account remains fully funded.
             while post_cash < -1e-9:
                 bought = delta[delta > 0]
                 if bought.empty:
@@ -159,7 +181,6 @@ def replay_fractional_targets_as_whole_shares(
                     key=lambda t: float(px[t]),
                 )
                 desired[ticker] -= 1
-                delta = desired - shares
                 desired_values = desired.astype(float) * px
                 desired_cash = equity_before_trade - float(desired_values.sum())
                 desired_weights = desired_values / equity_before_trade
@@ -168,12 +189,13 @@ def replay_fractional_targets_as_whole_shares(
                     float((desired_weights - current_weights).abs().sum())
                     + abs(desired_cash_weight - current_cash_weight)
                 )
-                cost = (
-                    equity_before_trade
-                    * turnover
-                    * transaction_cost_bps
-                    / 10_000.0
-                )
+                (
+                    delta,
+                    commissions,
+                    cost,
+                    buy_notional,
+                    sell_notional,
+                ) = execution_costs(desired)
                 post_cash = desired_cash - cost
 
             if (delta != 0).any():
@@ -182,6 +204,8 @@ def replay_fractional_targets_as_whole_shares(
                         "date": date,
                         "turnover": turnover,
                         "cost": cost,
+                        "buy_notional": buy_notional,
+                        "sell_notional": sell_notional,
                     }
                 )
                 for ticker in columns:
@@ -196,6 +220,7 @@ def replay_fractional_targets_as_whole_shares(
                             "shares": abs(change),
                             "price": float(px[ticker]),
                             "notional": abs(change) * float(px[ticker]),
+                            "commission": int(commissions[ticker]),
                             "turnover_event": turnover,
                             "cost_event": cost,
                         }
