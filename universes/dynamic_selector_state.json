@@ -1,0 +1,45 @@
+{
+  "aggressive": [
+    {
+      "cluster_id": 2,
+      "entered": "2026-09-27",
+      "last_score": 0.7864864864864866,
+      "name": "HANARO Fn K-반도체",
+      "ticker": "395270.KS"
+    },
+    {
+      "cluster_id": 3,
+      "entered": "2026-09-27",
+      "last_score": 0.7858108108108108,
+      "name": "TIGER 미국배당다우존스",
+      "ticker": "458730.KS"
+    },
+    {
+      "cluster_id": 4,
+      "entered": "2026-09-27",
+      "last_score": 0.7662162162162162,
+      "name": "TIGER 미국필라델피아반도체나스닥",
+      "ticker": "381180.KS"
+    }
+  ],
+  "cooldowns": {},
+  "defensive": [
+    {
+      "cluster_id": 0,
+      "entered": "2026-09-27",
+      "last_score": 0.8175675675675675,
+      "name": "TIGER 원유선물Enhanced(H)",
+      "ticker": "130680.KS"
+    },
+    {
+      "cluster_id": 1,
+      "entered": "2026-09-27",
+      "last_score": 0.8006756756756757,
+      "name": "KODEX 3대농산물선물(H)",
+      "ticker": "271060.KS"
+    }
+  ],
+  "last_run_date": "2026-09-27",
+  "last_selection_month": "2026-09",
+  "version": 1
+}

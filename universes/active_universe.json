@@ -1,0 +1,91 @@
+{
+  "aggressive": [
+    "395270.KS",
+    "458730.KS",
+    "381180.KS"
+  ],
+  "allocation": {
+    "breadth": 0.5102162516671396,
+    "defensive_target": 0.09,
+    "ideal_target_weights": {
+      "069500.KS": 0.45000000000000007,
+      "130680.KS": 0.05365567787227531,
+      "153130.KS": 0.010000000000000009,
+      "271060.KS": 0.036344322127724676,
+      "381180.KS": 0.15,
+      "395270.KS": 0.15,
+      "458730.KS": 0.15
+    },
+    "market_emergency": false,
+    "market_momentum": 0.6443418010885471,
+    "market_score": 0.6108104137331952,
+    "peak_drawdown_60d": -0.1818693624352574,
+    "peak_lock": false,
+    "return_20d": 0.0504595673567913,
+    "safe_target": 0.010000000000000009,
+    "stock_target": 0.9
+  },
+  "as_of": "2026-09-27",
+  "defensive": [
+    "130680.KS",
+    "271060.KS"
+  ],
+  "events": [
+    {
+      "action": "FILL_SLOT",
+      "bucket": "aggressive",
+      "name": "HANARO Fn K-반도체",
+      "score": 0.7864864864864866,
+      "ticker": "395270.KS"
+    },
+    {
+      "action": "FILL_SLOT",
+      "bucket": "aggressive",
+      "name": "TIGER 미국배당다우존스",
+      "score": 0.7858108108108108,
+      "ticker": "458730.KS"
+    },
+    {
+      "action": "FILL_SLOT",
+      "bucket": "aggressive",
+      "name": "TIGER 미국필라델피아반도체나스닥",
+      "score": 0.7662162162162162,
+      "ticker": "381180.KS"
+    },
+    {
+      "action": "FILL_SLOT",
+      "bucket": "defensive",
+      "name": "TIGER 원유선물Enhanced(H)",
+      "score": 0.8175675675675675,
+      "ticker": "130680.KS"
+    },
+    {
+      "action": "FILL_SLOT",
+      "bucket": "defensive",
+      "name": "KODEX 3대농산물선물(H)",
+      "score": 0.8006756756756757,
+      "ticker": "271060.KS"
+    }
+  ],
+  "market_emergency": false,
+  "market_emergency_reason": null,
+  "market_ticker": "069500.KS",
+  "rules": {
+    "aggressive_slots": 3,
+    "cooldown_business_days": 5,
+    "defensive_market_corr_max": 0.6,
+    "defensive_min_annual_vol": 0.01,
+    "defensive_slots": 2,
+    "emergency_momentum_floor": 0.0,
+    "emergency_peak_drawdown_60d": -0.1,
+    "emergency_return_1d": -0.05,
+    "emergency_return_5d": -0.08,
+    "market_emergency_return_20d": -0.08,
+    "market_emergency_return_5d": -0.06,
+    "market_ticker": "069500.KS",
+    "min_hold_business_days": 20,
+    "replacement_score_margin": 0.15,
+    "safe_ticker": "153130.KS"
+  },
+  "safe_ticker": "153130.KS"
+}
