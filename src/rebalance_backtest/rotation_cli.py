@@ -37,7 +37,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--end", default=None)
     p.add_argument("--safe", choices=SAFE_CHOICES, default="shortbond")
     p.add_argument("--initial-capital", type=float, default=300_000.0)
-    p.add_argument("--transaction-cost-bps", type=float, default=5.0)
+    p.add_argument("--transaction-cost-bps", type=float, default=1.5)
     p.add_argument("--rebalance-band", type=float, default=0.05)
     p.add_argument("--min-trade-turnover", type=float, default=0.02)
     p.add_argument("--risk-on-step", type=float, default=0.05)
