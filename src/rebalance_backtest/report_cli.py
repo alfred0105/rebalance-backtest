@@ -264,10 +264,11 @@ def _drawdown_chart(rotation_curves: pd.DataFrame, hedge_curve: pd.DataFrame) ->
 
 def _weights_chart(
     weights: pd.DataFrame,
-    names: dict[str, str],
+    names: dict[str, str] | None = None,
 ) -> str | None:
     if weights.empty:
         return None
+    names = names or {}
     sample = weights.copy()
     if isinstance(sample.index, pd.DatetimeIndex) and len(sample):
         cutoff = sample.index.max() - pd.Timedelta(days=730)
