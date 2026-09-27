@@ -7,7 +7,7 @@ import pandas as pd
 
 from .backtest import run_backtest
 from .console import finish_status, live_status
-from .data import fetch_prices
+from .data import fetch_execution_data, fetch_prices
 from .hedge_rotation import PeakHedgeRotationStrategy
 from .integer_replay import replay_fractional_targets_as_whole_shares
 from .rotation import AdaptiveRotationStrategy
@@ -63,9 +63,9 @@ def _peak_hedge(
         sector_breadth_weight=0.25,
         enable_peak_protection=peak,
         enable_hedge_rotation=hedge,
-        no_trade_band=0.075 if low_turnover else 0.05,
-        min_trade_turnover=0.03 if low_turnover else 0.02,
-        defensive_step=0.15 if low_turnover else 0.20,
+        no_trade_band=0.10 if low_turnover else 0.075,
+        min_trade_turnover=0.04 if low_turnover else 0.03,
+        defensive_step=0.12 if low_turnover else 0.15,
     )
 
 
@@ -274,15 +274,24 @@ def main() -> None:
         ]
     )
 
+    live_status("[hedge] downloading raw execution prices and distributions")
+    execution = fetch_execution_data(tickers, args.start, args.end)
+    execution_close = execution.close.reindex(prices.index).ffill().bfill()
+    execution_dividends = execution.dividends.reindex(prices.index).fillna(0.0)
+    execution_splits = execution.splits.reindex(prices.index).fillna(0.0)
+
     integer_peak = replay_fractional_targets_as_whole_shares(
-        prices,
+        execution_close,
         results["peak_hedge"],
         initial_capital=args.initial_capital,
         transaction_cost_bps=args.transaction_cost_bps,
+        dividends=execution_dividends,
+        splits=execution_splits,
     )
     integer_peak.equity_curve.to_csv(out / "integer_peak_hedge_equity.csv")
     integer_peak.shares.to_csv(out / "integer_peak_hedge_shares.csv")
     integer_peak.trades.to_csv(out / "integer_peak_hedge_trades.csv")
+    integer_peak.cashflows.to_csv(out / "integer_peak_hedge_cashflows.csv")
     pd.DataFrame([integer_peak.metrics], index=["peak_hedge_whole_shares"]).to_csv(
         out / "integer_peak_hedge_summary.csv"
     )
@@ -295,7 +304,8 @@ def main() -> None:
         f"CAGR: {integer_peak.metrics['cagr']:.2%} | "
         f"MDD: {integer_peak.metrics['max_drawdown']:.2%} | "
         f"Sharpe: {integer_peak.metrics['sharpe']:.3f} | "
-        f"Residual cash: {integer_peak.metrics['residual_cash']:,.0f} KRW\n"
+        f"Residual cash: {integer_peak.metrics['residual_cash']:,.0f} KRW | "
+        f"Distributions: {integer_peak.metrics['total_distributions']:,.0f} KRW\n"
     )
     (out / "hedge_report.txt").write_text(report_text, encoding="utf-8")
     (runs / "latest_hedge_report.txt").write_text(report_text, encoding="utf-8")
