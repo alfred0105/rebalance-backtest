@@ -15,6 +15,7 @@ class IntegerReplayResult:
     equity_curve: pd.Series
     daily_returns: pd.Series
     shares: pd.DataFrame
+    portfolio: pd.DataFrame
     trades: pd.DataFrame
     cashflows: pd.DataFrame
     metrics: dict[str, float]
@@ -135,6 +136,7 @@ def replay_fractional_targets_as_whole_shares(
     equity_records: list[tuple[pd.Timestamp, float]] = []
     return_records: list[tuple[pd.Timestamp, float]] = []
     share_records: list[dict[str, float | int | pd.Timestamp]] = []
+    portfolio_records: list[dict[str, float | int | pd.Timestamp]] = []
     trade_records: list[dict[str, float | int | pd.Timestamp | str]] = []
     rebalance_records: list[dict[str, float | pd.Timestamp]] = []
     cashflow_records: list[dict[str, float | pd.Timestamp | str]] = []
@@ -146,6 +148,17 @@ def replay_fractional_targets_as_whole_shares(
     share_records.append(
         {"date": prices.index[0], **shares.to_dict(), "CASH": cash}
     )
+    first_values = shares.astype(float) * prices.iloc[0].astype(float)
+    first_portfolio = {"date": prices.index[0], "equity": first_equity}
+    for ticker in columns:
+        first_portfolio[f"shares_{ticker}"] = int(shares[ticker])
+        first_portfolio[f"value_{ticker}"] = float(first_values[ticker])
+        first_portfolio[f"weight_{ticker}"] = (
+            float(first_values[ticker] / first_equity) if first_equity > 0 else 0.0
+        )
+    first_portfolio["CASH"] = cash
+    first_portfolio["weight_CASH"] = cash / first_equity if first_equity > 0 else 0.0
+    portfolio_records.append(first_portfolio)
     prev_equity = first_equity
 
     for date, px in prices.iloc[1:].iterrows():
@@ -296,6 +309,17 @@ def replay_fractional_targets_as_whole_shares(
         equity_records.append((date, equity))
         return_records.append((date, net_return))
         share_records.append({"date": date, **shares.to_dict(), "CASH": cash})
+        values = shares.astype(float) * px.astype(float)
+        portfolio_record = {"date": date, "equity": equity}
+        for ticker in columns:
+            portfolio_record[f"shares_{ticker}"] = int(shares[ticker])
+            portfolio_record[f"value_{ticker}"] = float(values[ticker])
+            portfolio_record[f"weight_{ticker}"] = (
+                float(values[ticker] / equity) if equity > 0 else 0.0
+            )
+        portfolio_record["CASH"] = cash
+        portfolio_record["weight_CASH"] = cash / equity if equity > 0 else 0.0
+        portfolio_records.append(portfolio_record)
         prev_equity = equity
 
     equity_curve = pd.Series(
@@ -311,6 +335,7 @@ def replay_fractional_targets_as_whole_shares(
         dtype=float,
     )
     shares_df = pd.DataFrame(share_records).set_index("date")
+    portfolio_df = pd.DataFrame(portfolio_records).set_index("date")
     trades_df = pd.DataFrame(trade_records)
     if not trades_df.empty:
         trades_df = trades_df.set_index("date")
@@ -334,6 +359,7 @@ def replay_fractional_targets_as_whole_shares(
         equity_curve=equity_curve,
         daily_returns=daily_returns,
         shares=shares_df,
+        portfolio=portfolio_df,
         trades=trades_df,
         cashflows=cashflows_df,
         metrics=metrics,
