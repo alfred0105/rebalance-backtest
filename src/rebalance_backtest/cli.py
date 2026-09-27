@@ -19,7 +19,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--weights", nargs="+", type=float)
     parser.add_argument("--start", default="2010-01-01")
     parser.add_argument("--end", default=None)
-    parser.add_argument("--transaction-cost-bps", type=float, default=5.0)
+    parser.add_argument("--transaction-cost-bps", type=float, default=1.5)
     parser.add_argument("--initial-capital", type=float, default=300_000.0)
     parser.add_argument("--output", default="results")
     return parser.parse_args()
