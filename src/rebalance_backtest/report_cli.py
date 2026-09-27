@@ -19,7 +19,7 @@ def _parse_args() -> argparse.Namespace:
         description="Build terminal + standalone HTML visualization of strategy behavior."
     )
     p.add_argument("--initial-capital", type=float, default=300_000.0)
-    p.add_argument("--snapshot", default="universes/snapshots/2026-09.csv")
+    p.add_argument("--snapshot", default=None)
     p.add_argument("--active", default="universes/active_universe.json")
     p.add_argument("--output", default="runs/latest_dashboard.html")
     return p.parse_args()
@@ -288,13 +288,16 @@ def main() -> None:
     capital = float(args.initial_capital)
 
     active_path = Path(args.active)
-    snapshot_path = Path(args.snapshot)
     if not active_path.exists():
         raise FileNotFoundError(active_path)
-    if not snapshot_path.exists():
+    if args.snapshot:
+        snapshot_path = Path(args.snapshot)
+        if not snapshot_path.exists():
+            raise FileNotFoundError(snapshot_path)
+    else:
         snapshots = sorted(Path("universes/snapshots").glob("*.csv"))
         if not snapshots:
-            raise FileNotFoundError(snapshot_path)
+            raise FileNotFoundError("No monthly universe snapshot found.")
         snapshot_path = snapshots[-1]
 
     live_status("[report] loading strategy outputs and 300k execution plan")
