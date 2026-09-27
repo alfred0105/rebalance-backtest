@@ -16,6 +16,7 @@ class IntegerReplayResult:
     daily_returns: pd.Series
     shares: pd.DataFrame
     trades: pd.DataFrame
+    cashflows: pd.DataFrame
     metrics: dict[str, float]
 
 
@@ -70,6 +71,8 @@ def replay_fractional_targets_as_whole_shares(
     *,
     initial_capital: float,
     transaction_cost_bps: float = TOSS_KRX_COMMISSION_BPS,
+    dividends: pd.DataFrame | None = None,
+    splits: pd.DataFrame | None = None,
 ) -> IntegerReplayResult:
     """Replay an existing strategy's target changes using whole ETF shares.
 
@@ -84,6 +87,26 @@ def replay_fractional_targets_as_whole_shares(
 
     prices = prices.copy().sort_index().dropna(how="any")
     columns = prices.columns
+    prices.index = pd.to_datetime(prices.index).tz_localize(None)
+
+    if dividends is None:
+        dividends = pd.DataFrame(0.0, index=prices.index, columns=columns)
+    else:
+        dividends = (
+            dividends.copy()
+            .reindex(index=prices.index, columns=columns)
+            .fillna(0.0)
+            .astype(float)
+        )
+    if splits is None:
+        splits = pd.DataFrame(0.0, index=prices.index, columns=columns)
+    else:
+        splits = (
+            splits.copy()
+            .reindex(index=prices.index, columns=columns)
+            .fillna(0.0)
+            .astype(float)
+        )
 
     initial_target = (
         fractional.weights.iloc[0]
@@ -114,6 +137,8 @@ def replay_fractional_targets_as_whole_shares(
     share_records: list[dict[str, float | int | pd.Timestamp]] = []
     trade_records: list[dict[str, float | int | pd.Timestamp | str]] = []
     rebalance_records: list[dict[str, float | pd.Timestamp]] = []
+    cashflow_records: list[dict[str, float | pd.Timestamp | str]] = []
+    total_distributions = 0.0
 
     first_equity = float((shares.astype(float) * prices.iloc[0]).sum() + cash)
     equity_records.append((prices.index[0], first_equity))
@@ -124,6 +149,44 @@ def replay_fractional_targets_as_whole_shares(
     prev_equity = first_equity
 
     for date, px in prices.iloc[1:].iterrows():
+        split_row = splits.loc[date]
+        for ticker in columns:
+            factor = float(split_row.get(ticker, 0.0))
+            if np.isfinite(factor) and factor > 0 and abs(factor - 1.0) > 1e-12:
+                before = int(shares[ticker])
+                shares[ticker] = int(round(before * factor))
+                cashflow_records.append(
+                    {
+                        "date": date,
+                        "ticker": ticker,
+                        "type": "SPLIT",
+                        "amount": factor,
+                    }
+                )
+
+        dividend_row = dividends.loc[date]
+        distribution_cash = float(
+            (
+                shares.astype(float)
+                * dividend_row.reindex(columns).fillna(0.0).astype(float)
+            ).sum()
+        )
+        if distribution_cash > 0:
+            cash += distribution_cash
+            total_distributions += distribution_cash
+            for ticker in columns:
+                per_share = float(dividend_row.get(ticker, 0.0))
+                if per_share <= 0 or int(shares[ticker]) <= 0:
+                    continue
+                cashflow_records.append(
+                    {
+                        "date": date,
+                        "ticker": ticker,
+                        "type": "DISTRIBUTION",
+                        "amount": float(int(shares[ticker]) * per_share),
+                    }
+                )
+
         equity_before_trade = float((shares.astype(float) * px).sum() + cash)
 
         target = target_by_date.get(pd.Timestamp(date))
@@ -218,8 +281,8 @@ def replay_fractional_targets_as_whole_shares(
                             "ticker": ticker,
                             "action": "BUY" if change > 0 else "SELL",
                             "shares": abs(change),
-                            "price": float(px[ticker]),
-                            "notional": abs(change) * float(px[ticker]),
+                            "price": int(round(float(px[ticker]))),
+                            "notional": int(round(abs(change) * float(px[ticker]))),
                             "commission": int(commissions[ticker]),
                             "turnover_event": turnover,
                             "cost_event": cost,
@@ -255,6 +318,9 @@ def replay_fractional_targets_as_whole_shares(
     rebalance_df = pd.DataFrame(rebalance_records)
     if not rebalance_df.empty:
         rebalance_df = rebalance_df.set_index("date")
+    cashflows_df = pd.DataFrame(cashflow_records)
+    if not cashflows_df.empty:
+        cashflows_df = cashflows_df.set_index("date")
     metrics = performance_metrics(
         equity_curve,
         daily_returns,
@@ -263,10 +329,12 @@ def replay_fractional_targets_as_whole_shares(
     )
     metrics["ending_value"] = float(equity_curve.iloc[-1])
     metrics["residual_cash"] = float(cash)
+    metrics["total_distributions"] = float(total_distributions)
     return IntegerReplayResult(
         equity_curve=equity_curve,
         daily_returns=daily_returns,
         shares=shares_df,
         trades=trades_df,
+        cashflows=cashflows_df,
         metrics=metrics,
     )
