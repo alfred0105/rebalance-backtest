@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
 import numpy as np
 import pandas as pd
 
@@ -23,6 +24,48 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--active", default="universes/active_universe.json")
     p.add_argument("--output", default="runs/latest_dashboard.html")
     return p.parse_args()
+
+
+STRATEGY_LABELS = {
+    "kodex200_buy_hold": "KODEX 200 매수 후 보유",
+    "static_60_40": "주식 60% · 채권 40%",
+    "safe_only": "단기채권 100%",
+    "adaptive_rotation_daily": "적응형 로테이션",
+    "broad_signal": "광역 시장신호",
+    "peak_only": "피크 보호",
+    "hedge_only": "헤지 로테이션",
+    "peak_hedge": "피크 보호 + 헤지",
+    "peak_hedge_low_turnover": "피크 보호 + 헤지(저회전)",
+    "adaptive_whole_shares": "적응형 로테이션(정수주)",
+    "peak_hedge_whole_shares": "피크 보호 + 헤지(정수주)",
+}
+
+ACTION_LABELS = {
+    "BUY": "매수",
+    "SELL": "매도",
+    "FILL_SLOT": "신규 편입",
+    "EMERGENCY_EXIT": "긴급 퇴출",
+    "MONTHLY_REPLACE": "월간 교체",
+}
+
+
+def _configure_korean_font() -> None:
+    candidates = [
+        "AppleGothic",
+        "Noto Sans CJK KR",
+        "NanumGothic",
+        "Malgun Gothic",
+    ]
+    available = {font.name for font in font_manager.fontManager.ttflist}
+    for candidate in candidates:
+        if candidate in available:
+            plt.rcParams["font.family"] = candidate
+            break
+    plt.rcParams["axes.unicode_minus"] = False
+
+
+def _ko_bool(value: object) -> str:
+    return "예" if bool(value) else "아니오"
 
 
 def _load_active(path: Path) -> dict:
@@ -150,26 +193,30 @@ def _equity_chart(
     fig, ax = plt.subplots(figsize=(11, 4.8))
     if not rotation_curves.empty:
         for col in rotation_curves.columns:
-            ax.plot(rotation_curves.index, rotation_curves[col], label=col)
+            ax.plot(
+                rotation_curves.index,
+                rotation_curves[col],
+                label=STRATEGY_LABELS.get(str(col), str(col)),
+            )
     if not hedge_curve.empty:
         col = hedge_curve.columns[0]
-        ax.plot(hedge_curve.index, hedge_curve[col], label="peak_hedge")
+        ax.plot(hedge_curve.index, hedge_curve[col], label="피크 보호 + 헤지")
     if not integer_adaptive.empty:
         ax.plot(
             integer_adaptive.index,
             integer_adaptive.iloc[:, 0],
-            label="adaptive_whole_shares",
+            label="적응형 로테이션(정수주)",
             linestyle="--",
         )
     if not integer_peak.empty:
         ax.plot(
             integer_peak.index,
             integer_peak.iloc[:, 0],
-            label="peak_hedge_whole_shares",
+            label="피크 보호 + 헤지(정수주)",
             linestyle="--",
         )
-    ax.set_title("Portfolio value over time")
-    ax.set_ylabel("KRW")
+    ax.set_title("포트폴리오 가치 변화")
+    ax.set_ylabel("평가금액(원)")
     ax.legend(loc="best", fontsize=8)
     ax.grid(True, alpha=0.25)
     fig.tight_layout()
@@ -179,9 +226,9 @@ def _equity_chart(
 def _drawdown_chart(rotation_curves: pd.DataFrame, hedge_curve: pd.DataFrame) -> str | None:
     series: dict[str, pd.Series] = {}
     if "adaptive_rotation_daily" in rotation_curves.columns:
-        series["adaptive_rotation_daily"] = rotation_curves["adaptive_rotation_daily"]
+        series["적응형 로테이션"] = rotation_curves["adaptive_rotation_daily"]
     if not hedge_curve.empty:
-        series["peak_hedge"] = hedge_curve.iloc[:, 0]
+        series["피크 보호 + 헤지"] = hedge_curve.iloc[:, 0]
     if not series:
         return None
     fig, ax = plt.subplots(figsize=(11, 3.8))
@@ -189,8 +236,8 @@ def _drawdown_chart(rotation_curves: pd.DataFrame, hedge_curve: pd.DataFrame) ->
         values = pd.to_numeric(values, errors="coerce").dropna()
         dd = values / values.cummax() - 1.0
         ax.plot(dd.index, dd.values, label=name)
-    ax.set_title("Drawdown")
-    ax.set_ylabel("Drawdown")
+    ax.set_title("고점 대비 낙폭")
+    ax.set_ylabel("낙폭")
     ax.yaxis.set_major_formatter(lambda x, pos: f"{x:.0%}")
     ax.legend(loc="best", fontsize=8)
     ax.grid(True, alpha=0.25)
@@ -198,7 +245,10 @@ def _drawdown_chart(rotation_curves: pd.DataFrame, hedge_curve: pd.DataFrame) ->
     return _image_uri(fig)
 
 
-def _weights_chart(weights: pd.DataFrame) -> str | None:
+def _weights_chart(
+    weights: pd.DataFrame,
+    names: dict[str, str],
+) -> str | None:
     if weights.empty:
         return None
     sample = weights.copy()
@@ -216,10 +266,17 @@ def _weights_chart(weights: pd.DataFrame) -> str | None:
     valid = row_sums > 0
     sample.loc[valid] = sample.loc[valid].div(row_sums.loc[valid], axis=0)
 
+    sample = sample.rename(
+        columns={
+            column: ("현금" if str(column) == "CASH" else names.get(str(column), str(column)))
+            for column in sample.columns
+        }
+    )
+
     fig, ax = plt.subplots(figsize=(11, 4.2))
     sample.plot.area(ax=ax, linewidth=0)
-    ax.set_title("Adaptive rotation weights - recent 2 years")
-    ax.set_ylabel("Weight")
+    ax.set_title("적응형 로테이션 자산 비중 변화 - 최근 2년")
+    ax.set_ylabel("포트폴리오 비중")
     ax.yaxis.set_major_formatter(lambda x, pos: f"{x:.0%}")
     ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize=7)
     ax.set_ylim(0, 1)
@@ -237,8 +294,8 @@ def _turnover_chart(trades: pd.DataFrame) -> str | None:
         pd.to_numeric(trades["turnover"], errors="coerce").fillna(0.0),
         linewidth=0.8,
     )
-    ax.set_title("Trade turnover timeline")
-    ax.set_ylabel("Turnover")
+    ax.set_title("매매 발생 시점과 회전율")
+    ax.set_ylabel("회전율")
     ax.yaxis.set_major_formatter(lambda x, pos: f"{x:.0%}")
     ax.grid(True, alpha=0.2)
     fig.tight_layout()
@@ -400,14 +457,14 @@ def main() -> None:
         for event in events:
             print(json.dumps(event, ensure_ascii=False, sort_keys=True))
     else:
-        print("(no selector changes)")
+        print("(종목 변경 없음)")
     print("\n=== Recent strategy trades ===")
     if not integer_adaptive_trades.empty:
         recent = integer_adaptive_trades.tail(12).reset_index()
     else:
         recent = _explode_trade_log(rotation_trades, names, limit=12)
     if recent.empty:
-        print("(no recorded trades)")
+        print("(기록된 매매 없음)")
     else:
         shown = recent.copy()
         shown["date"] = pd.to_datetime(shown["date"]).dt.strftime("%Y-%m-%d")
@@ -421,6 +478,8 @@ def main() -> None:
             shown["cost_event"] = shown["cost_event"].map(lambda x: f"{x:,.0f}")
         print(shown.to_string(index=False))
 
+    _configure_korean_font()
+
     eq_img = _equity_chart(
         rotation_curves,
         hedge_curve,
@@ -428,7 +487,7 @@ def main() -> None:
         integer_peak_equity,
     )
     dd_img = _drawdown_chart(rotation_curves, hedge_curve)
-    weights_img = _weights_chart(rotation_weights)
+    weights_img = _weights_chart(rotation_weights, names)
     turnover_img = _turnover_chart(rotation_trades)
 
     plan_html = plan.copy()
@@ -438,40 +497,89 @@ def main() -> None:
         plan_html["weight_gap"] = plan_html["weight_gap"].map(lambda x: f"{x:+.1%}")
         for col in ["target_value", "price", "actual_value"]:
             plan_html[col] = plan_html[col].map(lambda x: f"{x:,.0f}")
+        plan_html = plan_html[
+            ["name", "target_weight", "price", "shares", "actual_weight", "weight_gap"]
+        ].rename(
+            columns={
+                "name": "종목명",
+                "target_weight": "목표 비중",
+                "price": "현재가",
+                "shares": "매수 수량",
+                "actual_weight": "실제 비중",
+                "weight_gap": "비중 차이",
+            }
+        )
 
     events_df = pd.DataFrame(events)
     if not events_df.empty:
+        for column in ["ticker", "out", "in"]:
+            if column in events_df.columns:
+                events_df[column] = events_df[column].map(
+                    lambda ticker: names.get(str(ticker), str(ticker)) if ticker else ""
+                )
+        if "name" in events_df.columns:
+            events_df["name"] = events_df["name"].astype(str)
+        if "out_name" in events_df.columns:
+            events_df["out_name"] = events_df["out_name"].astype(str)
+        if "in_name" in events_df.columns:
+            events_df["in_name"] = events_df["in_name"].astype(str)
+        if "action" in events_df.columns:
+            events_df["action"] = events_df["action"].map(
+                lambda value: ACTION_LABELS.get(str(value), str(value))
+            )
+        if "bucket" in events_df.columns:
+            events_df["bucket"] = events_df["bucket"].replace(
+                {"aggressive": "공격형", "defensive": "방어형"}
+            )
+        events_df = events_df.rename(
+            columns={
+                "action": "동작",
+                "bucket": "구분",
+                "ticker": "종목명",
+                "name": "종목",
+                "score": "점수",
+                "reason": "사유",
+                "cooldown_until": "재진입 제한 종료일",
+                "out": "퇴출 종목",
+                "out_name": "퇴출 종목명",
+                "out_score": "퇴출 점수",
+                "in": "편입 종목",
+                "in_name": "편입 종목명",
+                "in_score": "편입 점수",
+                "margin": "점수 차이",
+            }
+        )
         events_df = events_df.fillna("")
 
     metrics_rows = []
     for label, frame, key in [
-        ("Adaptive Rotation (fractional)", rotation_summary, "adaptive_rotation_daily"),
-        ("Adaptive Rotation (whole shares)", integer_adaptive_summary, "adaptive_rotation_whole_shares"),
-        ("Peak + Hedge (fractional)", hedge_summary, "peak_hedge"),
-        ("Peak + Hedge (whole shares)", integer_peak_summary, "peak_hedge_whole_shares"),
-        ("Peak only", hedge_summary, "peak_only"),
+        ("적응형 로테이션(이론 비중)", rotation_summary, "adaptive_rotation_daily"),
+        ("적응형 로테이션(30만원 정수주)", integer_adaptive_summary, "adaptive_rotation_whole_shares"),
+        ("피크 보호 + 헤지(이론 비중)", hedge_summary, "peak_hedge"),
+        ("피크 보호 + 헤지(30만원 정수주)", integer_peak_summary, "peak_hedge_whole_shares"),
+        ("피크 보호", hedge_summary, "peak_only"),
     ]:
         if frame.empty or key not in frame.index:
             continue
         row = frame.loc[key]
         metrics_rows.append(
             {
-                "strategy": label,
-                "CAGR": f"{float(row['cagr']):.2%}",
-                "Sharpe": f"{float(row['sharpe']):.3f}",
-                "MDD": f"{float(row['max_drawdown']):.2%}",
-                "trades": int(float(row["trade_count"])),
-                "cost_KRW": f"{float(row['total_transaction_cost']):,.0f}",
+                "전략": label,
+                "연복리수익률": f"{float(row['cagr']):.2%}",
+                "샤프지수": f"{float(row['sharpe']):.3f}",
+                "최대낙폭": f"{float(row['max_drawdown']):.2%}",
+                "매매횟수": int(float(row["trade_count"])),
+                "거래비용(원)": f"{float(row['total_transaction_cost']):,.0f}",
             }
         )
     metrics_df = pd.DataFrame(metrics_rows)
 
     charts = []
     for title, uri in [
-        ("Portfolio value", eq_img),
-        ("Drawdown", dd_img),
-        ("Portfolio weights", weights_img),
-        ("Trade timing / turnover", turnover_img),
+        ("포트폴리오 가치 변화", eq_img),
+        ("고점 대비 낙폭", dd_img),
+        ("포트폴리오 자산 비중", weights_img),
+        ("매매 시점과 회전율", turnover_img),
     ]:
         if uri:
             charts.append(
@@ -480,7 +588,34 @@ def main() -> None:
             )
 
     event_html = _html_table(events_df)
-    recent_html = _html_table(trade_log.tail(40))
+
+    trade_log_html = trade_log.tail(40).copy()
+    if not trade_log_html.empty:
+        if "ticker" in trade_log_html.columns:
+            trade_log_html["ticker"] = trade_log_html["ticker"].map(
+                lambda ticker: names.get(str(ticker), str(ticker))
+            )
+        if "action" in trade_log_html.columns:
+            trade_log_html["action"] = trade_log_html["action"].map(
+                lambda value: ACTION_LABELS.get(str(value), str(value))
+            )
+        trade_log_html = trade_log_html.rename(
+            columns={
+                "date": "날짜",
+                "ticker": "종목명",
+                "name": "종목",
+                "action": "매매",
+                "shares": "수량",
+                "price": "체결가",
+                "notional": "거래금액",
+                "turnover_event": "회전율",
+                "cost_event": "거래비용",
+                "delta_weight": "비중 변화",
+                "turnover": "회전율",
+                "cost": "거래비용",
+            }
+        )
+    recent_html = _html_table(trade_log_html)
     metrics_html = _html_table(metrics_df)
     plan_table_html = _html_table(plan_html)
 
@@ -500,16 +635,16 @@ def main() -> None:
 
     html_doc = f"""<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Rebalance Backtest Dashboard</title><style>{css}</style></head>
+<title>리밸런싱 전략 대시보드</title><style>{css}</style></head>
 <body><main>
-<h1>Rebalance Backtest Dashboard</h1>
-<p class="muted">As of {html.escape(str(active.get('as_of','')))} · paper capital {capital:,.0f} KRW · whole-share execution plan</p>
+<h1>리밸런싱 전략 대시보드</h1>
+<p class="muted">기준일 {html.escape(str(active.get('as_of','')))} · 모의 투자금 {capital:,.0f}원 · ETF 1주 단위 실행 기준</p>
 
 <div class="grid">
-  <div class="kpi">Market score<b>{float(allocation.get('market_score',0)):.3f}</b></div>
-  <div class="kpi">Stock target<b>{float(allocation.get('stock_target',0)):.1%}</b></div>
-  <div class="kpi">Defensive target<b>{float(allocation.get('defensive_target',0)):.1%}</b></div>
-  <div class="kpi">Executable cash<b>{cash:,.0f} KRW</b></div>
+  <div class="kpi">시장 점수<b>{float(allocation.get('market_score',0)):.3f}</b></div>
+  <div class="kpi">주식 목표 비중<b>{float(allocation.get('stock_target',0)):.1%}</b></div>
+  <div class="kpi">방어자산 목표 비중<b>{float(allocation.get('defensive_target',0)):.1%}</b></div>
+  <div class="kpi">남는 현금<b>{cash:,.0f}원</b></div>
 </div>
 
 <section class="card"><h2>30만원 실제 정수주 매수안</h2>
@@ -517,24 +652,26 @@ def main() -> None:
 <div class="scroll">{plan_table_html}</div>
 <p><b>남는 현금:</b> {cash:,.0f} KRW ({cash/capital:.1%})</p></section>
 
-<section class="card"><h2>Strategy metrics</h2><div class="scroll">{metrics_html}</div></section>
+<section class="card"><h2>전략 성과 지표</h2><div class="scroll">{metrics_html}</div></section>
 {''.join(charts)}
 
-<section class="card"><h2>Dynamic selector events</h2>
-<p class="muted">종목 선정, 긴급퇴출, cooldown 등 현재 실행에서 발생한 의사결정.</p>
+<section class="card"><h2>동적 종목선정 이벤트</h2>
+<p class="muted">신규 편입, 긴급 퇴출, 재진입 제한 등 이번 실행에서 발생한 의사결정을 표시한다.</p>
 <div class="scroll">{event_html}</div></section>
 
-<section class="card"><h2>Historical buy / sell timeline</h2>
-<p class="muted">가능하면 30만원 whole-share replay의 실제 BUY/SELL 주식 수를 표시한다. 데이터가 없을 때만 목표 비중 변화 로그를 사용한다.</p>
+<section class="card"><h2>과거 매수·매도 내역</h2>
+<p class="muted">30만원 정수주 재현 결과를 기준으로 실제 몇 주를 매수·매도했는지 표시한다.</p>
 <div class="scroll">{recent_html}</div></section>
 
-<section class="card"><h2>How the engine is operating</h2>
-<p>Market emergency: <code>{html.escape(str(active.get('market_emergency')))}</code> ·
-Peak lock: <code>{html.escape(str(allocation.get('peak_lock')))}</code> ·
-Peak DD 60d: <code>{float(allocation.get('peak_drawdown_60d',0)):.1%}</code></p>
-<p class="muted">Fractional curves preserve strategy comparability. Whole-share replay keeps the same strategy signals but executes them with integer ETF shares, exposing small-capital tracking error and residual cash.</p>
+<section class="card"><h2>현재 전략 동작 상태</h2>
+<p>시장 비상상태: <code>{_ko_bool(active.get('market_emergency'))}</code> ·
+피크 보호 활성화: <code>{_ko_bool(allocation.get('peak_lock'))}</code> ·
+최근 60일 고점 대비 낙폭: <code>{float(allocation.get('peak_drawdown_60d',0)):.1%}</code></p>
+<p class="muted">이론 비중 결과는 전략 자체의 성능 비교용이고, 정수주 결과는 같은 신호를 30만원으로 실제 ETF 1주 단위에 맞춰 실행했을 때의 오차와 잔여 현금을 보여준다.</p>
 </section>
 </main></body></html>"""
+
+    _configure_korean_font()
 
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
