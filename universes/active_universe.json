@@ -5,20 +5,20 @@
     "381180.KS"
   ],
   "allocation": {
-    "breadth": 0.5102162516671396,
-    "defensive_target": 0.09,
+    "breadth": 0.5102159324460414,
+    "defensive_target": 0.08999999999999998,
     "ideal_target_weights": {
       "069500.KS": 0.45000000000000007,
-      "130680.KS": 0.05365567787227531,
+      "144600.KS": 0.04210638478580402,
       "153130.KS": 0.010000000000000009,
-      "271060.KS": 0.036344322127724676,
+      "271060.KS": 0.04789361521419596,
       "381180.KS": 0.15,
       "395270.KS": 0.15,
       "458730.KS": 0.15
     },
     "market_emergency": false,
-    "market_momentum": 0.6443418010885471,
-    "market_score": 0.6108104137331952,
+    "market_momentum": 0.644341639660324,
+    "market_score": 0.6108102128567533,
     "peak_drawdown_60d": -0.1818693624352574,
     "peak_lock": false,
     "return_20d": 0.0504595673567913,
@@ -27,44 +27,23 @@
   },
   "as_of": "2026-09-27",
   "defensive": [
-    "130680.KS",
-    "271060.KS"
+    "271060.KS",
+    "144600.KS"
   ],
   "events": [
     {
-      "action": "FILL_SLOT",
-      "bucket": "aggressive",
-      "name": "HANARO Fn K-반도체",
-      "score": 0.7864864864864866,
-      "ticker": "395270.KS"
-    },
-    {
-      "action": "FILL_SLOT",
-      "bucket": "aggressive",
-      "name": "TIGER 미국배당다우존스",
-      "score": 0.7858108108108108,
-      "ticker": "458730.KS"
-    },
-    {
-      "action": "FILL_SLOT",
-      "bucket": "aggressive",
-      "name": "TIGER 미국필라델피아반도체나스닥",
-      "score": 0.7662162162162162,
-      "ticker": "381180.KS"
-    },
-    {
-      "action": "FILL_SLOT",
-      "bucket": "defensive",
+      "action": "EMERGENCY_EXIT",
+      "cooldown_until": "2026-10-02",
       "name": "TIGER 원유선물Enhanced(H)",
-      "score": 0.8175675675675675,
+      "reason": "5D_DROP_-10.5%",
       "ticker": "130680.KS"
     },
     {
       "action": "FILL_SLOT",
       "bucket": "defensive",
-      "name": "KODEX 3대농산물선물(H)",
-      "score": 0.8006756756756757,
-      "ticker": "271060.KS"
+      "name": "KODEX 은선물(H)",
+      "score": 0.4121621621621621,
+      "ticker": "144600.KS"
     }
   ],
   "market_emergency": false,

@@ -12,9 +12,9 @@ Market emergency: KODEX200 5d <= -6% OR 20d <= -8%; aggressive slots exit immedi
 381180.KS TIGER 미국필라델피아반도체나스닥        0  0.7662    0.8424  0.0258  0.1162 -0.2175
 
 === Active defensive assets ===
-   ticker                  name  held_bd  screen  momentum      r1      r5  peak60
-130680.KS TIGER 원유선물Enhanced(H)        0  0.8176    0.9122 -0.0458 -0.1054 -0.1054
-271060.KS      KODEX 3대농산물선물(H)        0  0.8007    0.6179 -0.0197 -0.0175 -0.0334
+   ticker             name  held_bd  screen  momentum      r1      r5  peak60
+271060.KS KODEX 3대농산물선물(H)        0  0.8007    0.6179 -0.0197 -0.0175 -0.0334
+144600.KS     KODEX 은선물(H)        0  0.4122    0.5432  0.0142  0.0243 -0.0458
 
 === Dynamic risk allocation ===
 market_score=0.611 | breadth=0.510 | peakDD60=-18.2% | peak_lock=False | market_emergency=False
@@ -23,19 +23,16 @@ Ideal sleeves: stock=90.0% defensive=9.0% safe=1.0%
 395270.KS -> 15.0%
 458730.KS -> 15.0%
 381180.KS -> 15.0%
-130680.KS -> 5.4%
-271060.KS -> 3.6%
+271060.KS -> 4.8%
+144600.KS -> 4.2%
 153130.KS -> 1.0%
 
 === Selector actions this run ===
-{"action": "FILL_SLOT", "bucket": "aggressive", "name": "HANARO Fn K-반도체", "score": 0.7864864864864866, "ticker": "395270.KS"}
-{"action": "FILL_SLOT", "bucket": "aggressive", "name": "TIGER 미국배당다우존스", "score": 0.7858108108108108, "ticker": "458730.KS"}
-{"action": "FILL_SLOT", "bucket": "aggressive", "name": "TIGER 미국필라델피아반도체나스닥", "score": 0.7662162162162162, "ticker": "381180.KS"}
-{"action": "FILL_SLOT", "bucket": "defensive", "name": "TIGER 원유선물Enhanced(H)", "score": 0.8175675675675675, "ticker": "130680.KS"}
-{"action": "FILL_SLOT", "bucket": "defensive", "name": "KODEX 3대농산물선물(H)", "score": 0.8006756756756757, "ticker": "271060.KS"}
+{"action": "EMERGENCY_EXIT", "cooldown_until": "2026-10-02", "name": "TIGER 원유선물Enhanced(H)", "reason": "5D_DROP_-10.5%", "ticker": "130680.KS"}
+{"action": "FILL_SLOT", "bucket": "defensive", "name": "KODEX 은선물(H)", "score": 0.4121621621621621, "ticker": "144600.KS"}
 
 === Cooldowns ===
-(none)
+130680.KS -> 2026-10-02
 
 Notes:
 - KODEX200 is reserved as the market core and does not consume a satellite slot.

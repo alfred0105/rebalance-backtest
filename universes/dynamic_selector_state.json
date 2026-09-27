@@ -22,21 +22,23 @@
       "ticker": "381180.KS"
     }
   ],
-  "cooldowns": {},
+  "cooldowns": {
+    "130680.KS": "2026-10-02"
+  },
   "defensive": [
-    {
-      "cluster_id": 0,
-      "entered": "2026-09-27",
-      "last_score": 0.8175675675675675,
-      "name": "TIGER 원유선물Enhanced(H)",
-      "ticker": "130680.KS"
-    },
     {
       "cluster_id": 1,
       "entered": "2026-09-27",
       "last_score": 0.8006756756756757,
       "name": "KODEX 3대농산물선물(H)",
       "ticker": "271060.KS"
+    },
+    {
+      "cluster_id": 31,
+      "entered": "2026-09-27",
+      "last_score": 0.4121621621621621,
+      "name": "KODEX 은선물(H)",
+      "ticker": "144600.KS"
     }
   ],
   "last_run_date": "2026-09-27",
