@@ -130,6 +130,7 @@ def build_execution_plan(
             "price": px.reindex(shares.index).round().astype(int).to_numpy(),
             "shares": shares.to_numpy(dtype=int),
             "notional": notionals.round().astype(int).to_numpy(),
+            "actual_value": notionals.round().astype(int).to_numpy(),
             "commission": commissions.to_numpy(dtype=int),
             "actual_weight": actual_weights.to_numpy(dtype=float),
         }
