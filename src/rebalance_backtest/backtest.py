@@ -154,8 +154,16 @@ def run_backtest(
                     "equity_after_cost": equity,
                 }
                 for ticker in columns:
-                    record[f"target_{ticker}"] = float(target[ticker])
-                record["target_CASH"] = 1.0 - float(target.sum())
+                    before = float(weights[ticker])
+                    after = float(target[ticker])
+                    record[f"before_{ticker}"] = before
+                    record[f"target_{ticker}"] = after
+                    record[f"delta_{ticker}"] = after - before
+                before_cash = 1.0 - float(weights.sum())
+                target_cash = 1.0 - float(target.sum())
+                record["before_CASH"] = before_cash
+                record["target_CASH"] = target_cash
+                record["delta_CASH"] = target_cash - before_cash
                 trade_records.append(record)
             weights = target
             pending_target = None
