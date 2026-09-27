@@ -593,7 +593,7 @@ def main() -> None:
                 "샤프지수": f"{float(row['sharpe']):.3f}",
                 "최대낙폭": f"{float(row['max_drawdown']):.2%}",
                 "매매횟수": int(float(row["trade_count"])),
-                "거래비용(원)": f"{float(row['total_transaction_cost']):,.0f}",
+                "토스 수수료(원)": f"{float(row['total_transaction_cost']):,.0f}",
             }
         )
     metrics_df = pd.DataFrame(metrics_rows)
@@ -663,6 +663,7 @@ def main() -> None:
 <body><main>
 <h1>리밸런싱 전략 대시보드</h1>
 <p class="muted">기준일 {html.escape(str(active.get('as_of','')))} · 모의 투자금 {capital:,.0f}원 · ETF 1주 단위 실행 기준</p>
+<p class="muted">거래비용 가정: 토스증권 KRX 국내 ETF 위탁수수료 0.015% · 매수/매도 체결금액별 적용 · 원 미만 절사 · ETF 증권거래세 0원</p>
 
 <div class="grid">
   <div class="kpi">시장 점수<b>{float(allocation.get('market_score',0)):.3f}</b></div>
