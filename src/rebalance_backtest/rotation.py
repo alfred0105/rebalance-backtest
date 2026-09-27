@@ -48,8 +48,8 @@ class AdaptiveRotationStrategy:
     market_weight: float = 0.60
     sector_breadth_weight: float = 0.40
 
-    no_trade_band: float = 0.05
-    min_trade_turnover: float = 0.02
+    no_trade_band: float = 0.075
+    min_trade_turnover: float = 0.03
     risk_on_step: float = 0.05
     risk_off_step: float = 0.20
     emergency_step: float = 0.35
