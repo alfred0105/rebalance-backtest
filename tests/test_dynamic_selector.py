@@ -300,3 +300,20 @@ def test_peak_lock_caps_stock_target():
     assert allocation["peak_lock"]
     assert allocation["stock_target"] <= 0.50
     assert abs(sum(allocation["ideal_target_weights"].values()) - 1.0) < 1e-12
+
+
+def test_new_candidate_in_emergency_state_is_not_entered():
+    config = DynamicSelectionConfig(
+        aggressive_slots=1,
+        defensive_slots=0,
+    )
+    scored = _scored(shocked_a=True)
+
+    _, active = select_dynamic_universe(
+        scored,
+        as_of=pd.Timestamp("2026-09-22"),
+        config=config,
+    )
+
+    assert active["aggressive"] == ["BBB.KS"]
+    assert "AAA.KS" not in active["aggressive"]
