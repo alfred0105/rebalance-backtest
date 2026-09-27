@@ -231,6 +231,7 @@ def main() -> None:
     )
     integer_adaptive.equity_curve.to_csv(out / "integer_adaptive_equity.csv")
     integer_adaptive.shares.to_csv(out / "integer_adaptive_shares.csv")
+    integer_adaptive.portfolio.to_csv(out / "integer_adaptive_portfolio.csv")
     integer_adaptive.trades.to_csv(out / "integer_adaptive_trades.csv")
     integer_adaptive.cashflows.to_csv(out / "integer_adaptive_cashflows.csv")
     pd.DataFrame([integer_adaptive.metrics], index=["adaptive_rotation_whole_shares"]).to_csv(
