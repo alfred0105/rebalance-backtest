@@ -256,6 +256,7 @@ def _eligible_candidates(
     holdings: list[dict[str, Any]],
     cooldowns: dict[str, str],
     as_of: pd.Timestamp,
+    config: DynamicSelectionConfig,
 ) -> list[pd.Series]:
     held_tickers = {str(item["ticker"]) for item in holdings}
     held_clusters = {
@@ -272,6 +273,8 @@ def _eligible_candidates(
         if cluster_id >= 0 and cluster_id in held_clusters:
             continue
         if _cooldown_active(ticker, cooldowns, as_of):
+            continue
+        if _individual_emergency_reason(row, config) is not None:
             continue
         candidates.append(row)
     return candidates
@@ -293,6 +296,7 @@ def _fill_empty_slots(
             holdings=holdings,
             cooldowns=cooldowns,
             as_of=as_of,
+            config=config,
         )
         if not candidates:
             break
@@ -333,6 +337,7 @@ def _monthly_replace(
             holdings=holdings,
             cooldowns=cooldowns,
             as_of=as_of,
+            config=config,
         )
         if not candidates:
             break
