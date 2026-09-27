@@ -112,6 +112,7 @@ def replay_fractional_targets_as_whole_shares(
     return_records: list[tuple[pd.Timestamp, float]] = []
     share_records: list[dict[str, float | int | pd.Timestamp]] = []
     trade_records: list[dict[str, float | int | pd.Timestamp | str]] = []
+    rebalance_records: list[dict[str, float | pd.Timestamp]] = []
 
     first_equity = float((shares.astype(float) * prices.iloc[0]).sum() + cash)
     equity_records.append((prices.index[0], first_equity))
@@ -176,6 +177,13 @@ def replay_fractional_targets_as_whole_shares(
                 post_cash = desired_cash - cost
 
             if (delta != 0).any():
+                rebalance_records.append(
+                    {
+                        "date": date,
+                        "turnover": turnover,
+                        "cost": cost,
+                    }
+                )
                 for ticker in columns:
                     change = int(delta[ticker])
                     if change == 0:
@@ -188,8 +196,8 @@ def replay_fractional_targets_as_whole_shares(
                             "shares": abs(change),
                             "price": float(px[ticker]),
                             "notional": abs(change) * float(px[ticker]),
-                            "turnover": turnover,
-                            "cost_total": cost,
+                            "turnover_event": turnover,
+                            "cost_event": cost,
                         }
                     )
             shares = desired
@@ -219,10 +227,13 @@ def replay_fractional_targets_as_whole_shares(
     if not trades_df.empty:
         trades_df = trades_df.set_index("date")
 
+    rebalance_df = pd.DataFrame(rebalance_records)
+    if not rebalance_df.empty:
+        rebalance_df = rebalance_df.set_index("date")
     metrics = performance_metrics(
         equity_curve,
         daily_returns,
-        trades_df,
+        rebalance_df,
         risk_free_rate=0.0,
     )
     metrics["ending_value"] = float(equity_curve.iloc[-1])
