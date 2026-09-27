@@ -205,6 +205,17 @@ def _weights_chart(weights: pd.DataFrame) -> str | None:
     if isinstance(sample.index, pd.DatetimeIndex) and len(sample):
         cutoff = sample.index.max() - pd.Timedelta(days=730)
         sample = sample.loc[sample.index >= cutoff]
+
+    # Backtest weights are long-only, but floating-point arithmetic can make
+    # CASH a tiny negative number such as -1e-16 when risky weights sum to
+    # 1.0000000000000002. Pandas stacked-area charts reject any mixed-sign
+    # column, so sanitize display-only weights and renormalize each row.
+    sample = sample.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    sample = sample.clip(lower=0.0)
+    row_sums = sample.sum(axis=1)
+    valid = row_sums > 0
+    sample.loc[valid] = sample.loc[valid].div(row_sums.loc[valid], axis=0)
+
     fig, ax = plt.subplots(figsize=(11, 4.2))
     sample.plot.area(ax=ax, linewidth=0)
     ax.set_title("Adaptive rotation weights - recent 2 years")
