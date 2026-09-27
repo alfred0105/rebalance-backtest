@@ -8,7 +8,7 @@ import pandas as pd
 
 from .backtest import run_backtest
 from .console import finish_status, live_status
-from .data import fetch_prices
+from .data import fetch_execution_data, fetch_prices
 from .integer_replay import replay_fractional_targets_as_whole_shares
 from .rotation import AdaptiveRotationStrategy
 from .strategy import FixedWeightStrategy
@@ -38,8 +38,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--safe", choices=SAFE_CHOICES, default="shortbond")
     p.add_argument("--initial-capital", type=float, default=300_000.0)
     p.add_argument("--transaction-cost-bps", type=float, default=1.5)
-    p.add_argument("--rebalance-band", type=float, default=0.05)
-    p.add_argument("--min-trade-turnover", type=float, default=0.02)
+    p.add_argument("--rebalance-band", type=float, default=0.075)
+    p.add_argument("--min-trade-turnover", type=float, default=0.03)
     p.add_argument("--risk-on-step", type=float, default=0.05)
     p.add_argument("--risk-off-step", type=float, default=0.20)
     p.add_argument("--emergency-step", type=float, default=0.35)
@@ -215,15 +215,24 @@ def main() -> None:
     runs.mkdir(parents=True, exist_ok=True)
     (runs / "latest_report.txt").write_text(report_text, encoding="utf-8")
 
+    live_status("[rotation] downloading raw execution prices and distributions")
+    execution = fetch_execution_data(tickers, args.start, args.end)
+    execution_close = execution.close.reindex(prices.index).ffill().bfill()
+    execution_dividends = execution.dividends.reindex(prices.index).fillna(0.0)
+    execution_splits = execution.splits.reindex(prices.index).fillna(0.0)
+
     integer_adaptive = replay_fractional_targets_as_whole_shares(
-        prices,
+        execution_close,
         results["adaptive_rotation_daily"],
         initial_capital=args.initial_capital,
         transaction_cost_bps=args.transaction_cost_bps,
+        dividends=execution_dividends,
+        splits=execution_splits,
     )
     integer_adaptive.equity_curve.to_csv(out / "integer_adaptive_equity.csv")
     integer_adaptive.shares.to_csv(out / "integer_adaptive_shares.csv")
     integer_adaptive.trades.to_csv(out / "integer_adaptive_trades.csv")
+    integer_adaptive.cashflows.to_csv(out / "integer_adaptive_cashflows.csv")
     pd.DataFrame([integer_adaptive.metrics], index=["adaptive_rotation_whole_shares"]).to_csv(
         out / "integer_adaptive_summary.csv"
     )
@@ -235,7 +244,8 @@ def main() -> None:
         f"CAGR: {integer_adaptive.metrics['cagr']:.2%} | "
         f"MDD: {integer_adaptive.metrics['max_drawdown']:.2%} | "
         f"Sharpe: {integer_adaptive.metrics['sharpe']:.3f} | "
-        f"Residual cash: {integer_adaptive.metrics['residual_cash']:,.0f} KRW\n"
+        f"Residual cash: {integer_adaptive.metrics['residual_cash']:,.0f} KRW | "
+        f"Distributions: {integer_adaptive.metrics['total_distributions']:,.0f} KRW\n"
     )
     (out / "latest_report.txt").write_text(report_text, encoding="utf-8")
     (runs / "latest_report.txt").write_text(report_text, encoding="utf-8")
