@@ -290,6 +290,7 @@ def main() -> None:
     )
     integer_peak.equity_curve.to_csv(out / "integer_peak_hedge_equity.csv")
     integer_peak.shares.to_csv(out / "integer_peak_hedge_shares.csv")
+    integer_peak.portfolio.to_csv(out / "integer_peak_hedge_portfolio.csv")
     integer_peak.trades.to_csv(out / "integer_peak_hedge_trades.csv")
     integer_peak.cashflows.to_csv(out / "integer_peak_hedge_cashflows.csv")
     pd.DataFrame([integer_peak.metrics], index=["peak_hedge_whole_shares"]).to_csv(
