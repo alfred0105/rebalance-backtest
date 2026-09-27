@@ -34,3 +34,22 @@ def test_integer_plan_keeps_unaffordable_target_as_zero_shares():
 
     assert int(plan.loc[0, "shares"]) == 0
     assert cash == 300_000.0
+
+
+def test_weights_chart_handles_tiny_negative_cash():
+    from rebalance_backtest.report_cli import _weights_chart
+
+    dates = pd.date_range("2026-01-01", periods=3, freq="D")
+    weights = pd.DataFrame(
+        {
+            "A.KS": [0.6, 0.7, 0.8],
+            "B.KS": [0.4, 0.3, 0.2],
+            "CASH": [1e-16, -2e-16, 0.0],
+        },
+        index=dates,
+    )
+
+    uri = _weights_chart(weights)
+
+    assert isinstance(uri, str)
+    assert uri.startswith("data:image/png;base64,")
