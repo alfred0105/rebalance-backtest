@@ -6,6 +6,7 @@ from typing import Protocol
 import numpy as np
 import pandas as pd
 
+from .costs import TOSS_KRX_COMMISSION_BPS, toss_krx_commissions_by_ticker
 from .metrics import performance_metrics
 
 
@@ -80,7 +81,7 @@ def run_backtest(
     *,
     schedule: str | None = "W-FRI",
     initial_capital: float = 10_000_000.0,
-    transaction_cost_bps: float = 5.0,
+    transaction_cost_bps: float = TOSS_KRX_COMMISSION_BPS,
     risk_free_rate: float = 0.0,
 ) -> BacktestResult:
     """Run a close-to-close long-only backtest with one-session signal lag.
@@ -143,13 +144,25 @@ def run_backtest(
             target = target.clip(lower=0.0)
 
             turnover = _turnover(weights, target)
-            cost = equity * turnover * transaction_cost_bps / 10_000.0
+            deltas = target - weights
+            notionals = deltas.abs() * equity
+            commissions = toss_krx_commissions_by_ticker(
+                notionals,
+                commission_bps=transaction_cost_bps,
+            )
+            cost = float(commissions.sum())
+            gross_trade_notional = float(notionals.sum())
+            buy_notional = float(notionals.loc[deltas > 0].sum())
+            sell_notional = float(notionals.loc[deltas < 0].sum())
             equity -= cost
 
             if turnover > 1e-12:
                 record: dict[str, float | pd.Timestamp] = {
                     "date": date,
                     "turnover": turnover,
+                    "gross_trade_notional": gross_trade_notional,
+                    "buy_notional": buy_notional,
+                    "sell_notional": sell_notional,
                     "cost": cost,
                     "equity_after_cost": equity,
                 }
@@ -159,6 +172,7 @@ def run_backtest(
                     record[f"before_{ticker}"] = before
                     record[f"target_{ticker}"] = after
                     record[f"delta_{ticker}"] = after - before
+                    record[f"commission_{ticker}"] = int(commissions[ticker])
                 before_cash = 1.0 - float(weights.sum())
                 target_cash = 1.0 - float(target.sum())
                 record["before_CASH"] = before_cash
