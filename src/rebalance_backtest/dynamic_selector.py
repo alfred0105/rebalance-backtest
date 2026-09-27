@@ -287,6 +287,7 @@ def _fill_empty_slots(
     slots: int,
     cooldowns: dict[str, str],
     as_of: pd.Timestamp,
+    config: DynamicSelectionConfig,
     events: list[dict[str, Any]],
     bucket: str,
 ) -> list[dict[str, Any]]:
@@ -472,6 +473,7 @@ def select_dynamic_universe(
             slots=config.aggressive_slots,
             cooldowns=cooldowns,
             as_of=as_of,
+            config=config,
             events=events,
             bucket="aggressive",
         )
@@ -481,6 +483,7 @@ def select_dynamic_universe(
         slots=config.defensive_slots,
         cooldowns=cooldowns,
         as_of=as_of,
+        config=config,
         events=events,
         bucket="defensive",
     )
