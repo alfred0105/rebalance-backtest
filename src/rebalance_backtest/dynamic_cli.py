@@ -40,6 +40,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--min-hold", type=int, default=20)
     p.add_argument("--cooldown", type=int, default=5)
     p.add_argument("--replace-margin", type=float, default=0.15)
+    p.add_argument("--capital", type=float, default=300_000.0)
     p.add_argument("--reset-state", action="store_true")
     return p.parse_args()
 
@@ -121,6 +122,9 @@ def main() -> None:
         "corr_market_126d",
         "annual_vol_63d",
         "cluster_id",
+        "theme",
+        "defensive_role",
+        "price_listing",
     }
     missing = sorted(required - set(scored.columns))
     if missing:
@@ -136,6 +140,7 @@ def main() -> None:
         min_hold_business_days=args.min_hold,
         cooldown_business_days=args.cooldown,
         replacement_score_margin=args.replace_margin,
+        execution_capital=args.capital,
     )
 
     as_of = pd.Timestamp.today().normalize()
@@ -149,12 +154,22 @@ def main() -> None:
         scored,
         active,
         config=config,
+        previous_state=previous,
     )
     active["allocation"] = allocation
+    state["risk_state"] = allocation["risk_state"]
+    state["risk_state_counter"] = allocation["risk_state_counter"]
 
     save_state(state_path, state)
     active_path.parent.mkdir(parents=True, exist_ok=True)
     active_path.write_text(
+        json.dumps(active, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    history_dir = active_path.parent / "daily_active"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    history_path = history_dir / f"{as_of:%Y-%m-%d}.json"
+    history_path.write_text(
         json.dumps(active, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
@@ -200,8 +215,8 @@ def main() -> None:
             f"| replace_margin={config.replacement_score_margin:.2f}"
         ),
         (
-            "Emergency: 1d <= -5% OR 5d <= -8% OR "
-            "(60d peak drawdown <= -10% AND momentum < 0)."
+            "Emergency: volatility-aware 1d/5d shock thresholds with "
+            "hard stops at -10%/-15%, plus peak-break with negative momentum."
         ),
         (
             "Market emergency: KODEX200 5d <= -6% OR 20d <= -8%; "
@@ -219,6 +234,7 @@ def main() -> None:
             f"market_score={allocation['market_score']:.3f} "
             f"| breadth={allocation['breadth']:.3f} "
             f"| peakDD60={allocation['peak_drawdown_60d']:.1%} "
+            f"| risk_state={allocation['risk_state']} "
             f"| peak_lock={allocation['peak_lock']} "
             f"| market_emergency={allocation['market_emergency']}"
         ),
@@ -239,9 +255,12 @@ def main() -> None:
         "- KODEX200 is reserved as the market core and does not consume a satellite slot.",
         "- Normal replacements occur on monthly review only after minimum hold.",
         "- Empty slots created by an individual emergency can refill immediately with a different eligible ETF.",
-        "- Correlation clusters prevent near-duplicate ETFs from occupying multiple slots.",
-        "- Target weights are ideal research allocations; they are not brokerage execution records.",
-        "- Historical dynamic-universe backtests require dated universe snapshots; current snapshots are accumulated going forward.",
+        "- Correlation clusters and economic-theme limits prevent duplicate exposures.",
+        "- Cooldown expiry alone is insufficient; re-entry also requires positive momentum and 5d recovery.",
+        "- SAFE / HEDGE / DIVERSIFIER roles have separate portfolio risk budgets.",
+        "- Small-capital affordability is checked before a new ETF consumes a slot.",
+        "- Target weights are ideal research allocations; whole-share execution is handled separately.",
+        "- Daily scored/active snapshots are accumulated for forward walk-forward validation.",
     ]
     report_text = "\n".join(report) + "\n"
     (runs / "latest_dynamic_report.txt").write_text(
