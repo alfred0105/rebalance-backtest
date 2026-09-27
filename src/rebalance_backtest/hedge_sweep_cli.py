@@ -9,6 +9,7 @@ from .backtest import run_backtest
 from .console import finish_status, live_status
 from .data import fetch_prices
 from .hedge_rotation import PeakHedgeRotationStrategy
+from .integer_replay import replay_fractional_targets_as_whole_shares
 from .rotation import AdaptiveRotationStrategy
 from .rotation_cli import KR_BONDS, KR_STOCKS, MARKET_TICKER, SAFE_CHOICES
 from .strategy import FixedWeightStrategy
@@ -273,7 +274,29 @@ def main() -> None:
         ]
     )
 
+    integer_peak = replay_fractional_targets_as_whole_shares(
+        prices,
+        results["peak_hedge"],
+        initial_capital=args.initial_capital,
+        transaction_cost_bps=args.transaction_cost_bps,
+    )
+    integer_peak.equity_curve.to_csv(out / "integer_peak_hedge_equity.csv")
+    integer_peak.shares.to_csv(out / "integer_peak_hedge_shares.csv")
+    integer_peak.trades.to_csv(out / "integer_peak_hedge_trades.csv")
+    pd.DataFrame([integer_peak.metrics], index=["peak_hedge_whole_shares"]).to_csv(
+        out / "integer_peak_hedge_summary.csv"
+    )
+
     report_text = "\n".join(report) + "\n"
+    report_text += (
+        "\n=== Whole-share small-capital replay ===\n"
+        f"Initial capital: {args.initial_capital:,.0f} KRW\n"
+        f"Ending value: {integer_peak.metrics['ending_value']:,.0f} KRW\n"
+        f"CAGR: {integer_peak.metrics['cagr']:.2%} | "
+        f"MDD: {integer_peak.metrics['max_drawdown']:.2%} | "
+        f"Sharpe: {integer_peak.metrics['sharpe']:.3f} | "
+        f"Residual cash: {integer_peak.metrics['residual_cash']:,.0f} KRW\n"
+    )
     (out / "hedge_report.txt").write_text(report_text, encoding="utf-8")
     (runs / "latest_hedge_report.txt").write_text(report_text, encoding="utf-8")
 
