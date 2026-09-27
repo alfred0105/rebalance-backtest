@@ -2,7 +2,9 @@ import pandas as pd
 
 from rebalance_backtest.universe_discovery import (
     _classify_name,
+    _defensive_role,
     _prefilter,
+    _theme_from_name,
 )
 
 
@@ -60,3 +62,14 @@ def test_prefilter_excludes_leverage_and_keeps_defensive_coverage():
 
     assert "4" not in result["symbol"].tolist()
     assert "3" in result["symbol"].tolist()
+
+
+def test_theme_classification_groups_korean_and_us_semiconductor_together():
+    assert _theme_from_name("HANARO Fn K-반도체") == "SEMICONDUCTOR"
+    assert _theme_from_name("TIGER 미국필라델피아반도체나스닥") == "SEMICONDUCTOR"
+
+
+def test_defensive_roles_separate_safe_hedge_and_diversifier():
+    assert _defensive_role("KODEX 단기채권", "DEFENSIVE") == "SAFE"
+    assert _defensive_role("KODEX 골드선물(H)", "REAL_ASSET") == "HEDGE"
+    assert _defensive_role("KODEX 은선물(H)", "REAL_ASSET") == "DIVERSIFIER"
