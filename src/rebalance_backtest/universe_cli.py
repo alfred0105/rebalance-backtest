@@ -32,6 +32,9 @@ def _format_table(df: pd.DataFrame) -> str:
         "ticker",
         "name",
         "bucket",
+        "theme",
+        "defensive_role",
+        "price_listing",
         "screen_score",
         "momentum_score",
         "cluster_id",
@@ -72,17 +75,23 @@ def main() -> None:
     aggressive, defensive = shortlist(scored, top_n=args.top)
 
     scored.to_csv(root / "latest_candidates.csv", index=False)
+    daily_dir = root / "daily_candidates"
+    daily_dir.mkdir(parents=True, exist_ok=True)
+    daily_candidate_path = daily_dir / f"{pd.Timestamp.today():%Y-%m-%d}.csv"
+    scored.to_csv(daily_candidate_path, index=False)
 
     report = [
         "=== Automatic Korean ETF discovery ===",
         (
             f"Observed universe: {len(listing)} | scored after filters/history: "
-            f"{len(scored)} | monthly snapshot={snapshot.as_posix()}"
+            f"{len(scored)} | monthly snapshot={snapshot.as_posix()} "
+            f"| daily scored snapshot={daily_candidate_path.as_posix()}"
         ),
         (
             "Filter: exclude leverage/inverse; prefilter by liquidity + current "
             "3M strength + defensive coverage; require sufficient daily history; "
-            "correlation-cluster near-duplicates."
+            "correlation-cluster near-duplicates; tag economic themes and "
+            "defensive roles for downstream concentration controls."
         ),
         "",
         "=== Aggressive/equity candidates ===",
