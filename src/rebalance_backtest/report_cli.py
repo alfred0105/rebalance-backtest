@@ -68,6 +68,23 @@ def _ko_bool(value: object) -> str:
     return "예" if bool(value) else "아니오"
 
 
+def _translate_reason(value: object) -> str:
+    text = str(value or "")
+    if text.startswith("1D_DROP_"):
+        return f"1일 수익률 급락({text.removeprefix('1D_DROP_')})"
+    if text.startswith("5D_DROP_"):
+        return f"5일 수익률 급락({text.removeprefix('5D_DROP_')})"
+    if text.startswith("MARKET_5D_"):
+        return f"시장 5일 수익률 급락({text.removeprefix('MARKET_5D_')})"
+    if text.startswith("MARKET_20D_"):
+        return f"시장 20일 수익률 급락({text.removeprefix('MARKET_20D_')})"
+    if text.startswith("PEAK_BREAK_"):
+        return "고점 대비 큰 폭 하락과 음의 모멘텀 동시 발생"
+    if text == "MARKET_EMERGENCY":
+        return "시장 비상상태"
+    return text
+
+
 def _load_active(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -527,24 +544,30 @@ def main() -> None:
             events_df["action"] = events_df["action"].map(
                 lambda value: ACTION_LABELS.get(str(value), str(value))
             )
+        if "reason" in events_df.columns:
+            events_df["reason"] = events_df["reason"].map(_translate_reason)
         if "bucket" in events_df.columns:
             events_df["bucket"] = events_df["bucket"].replace(
                 {"aggressive": "공격형", "defensive": "방어형"}
             )
+        if "ticker" in events_df.columns and "name" in events_df.columns:
+            events_df = events_df.drop(columns=["name"])
+        if "out" in events_df.columns and "out_name" in events_df.columns:
+            events_df = events_df.drop(columns=["out_name"])
+        if "in" in events_df.columns and "in_name" in events_df.columns:
+            events_df = events_df.drop(columns=["in_name"])
+
         events_df = events_df.rename(
             columns={
                 "action": "동작",
                 "bucket": "구분",
                 "ticker": "종목명",
-                "name": "종목",
                 "score": "점수",
                 "reason": "사유",
                 "cooldown_until": "재진입 제한 종료일",
                 "out": "퇴출 종목",
-                "out_name": "퇴출 종목명",
                 "out_score": "퇴출 점수",
                 "in": "편입 종목",
-                "in_name": "편입 종목명",
                 "in_score": "편입 점수",
                 "margin": "점수 차이",
             }
