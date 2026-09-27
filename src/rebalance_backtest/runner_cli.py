@@ -60,6 +60,9 @@ def _publish(*, include_sweep: bool) -> None:
     reports = [
         Path("runs/latest_universe_report.txt"),
         Path("runs/latest_dynamic_report.txt"),
+        Path("runs/latest_dashboard.html"),
+        Path("runs/latest_execution_plan.csv"),
+        Path("runs/latest_trade_log.csv"),
         Path("runs/latest_report.txt"),
         Path("runs/latest_hedge_report.txt"),
         Path("universes/latest_candidates.csv"),
@@ -110,18 +113,6 @@ def main() -> None:
     common = _common_args(args)
 
     if args.quick:
-        live_status("[1/4] discovering ETF candidates")
-        _run_module("rebalance_backtest.universe_cli", [])
-
-        live_status("[2/4] updating dynamic ETF universe")
-        _run_module("rebalance_backtest.dynamic_cli", [])
-
-        live_status("[3/4] starting broad-signal rotation")
-        _run_module("rebalance_backtest.rotation_cli", common)
-
-        live_status("[4/4] starting peak + hedge experiment")
-        _run_module("rebalance_backtest.hedge_sweep_cli", common)
-    else:
         live_status("[1/5] discovering ETF candidates")
         _run_module("rebalance_backtest.universe_cli", [])
 
@@ -131,11 +122,35 @@ def main() -> None:
         live_status("[3/5] starting broad-signal rotation")
         _run_module("rebalance_backtest.rotation_cli", common)
 
-        live_status("[4/5] starting parameter sweep")
+        live_status("[4/5] starting peak + hedge experiment")
+        _run_module("rebalance_backtest.hedge_sweep_cli", common)
+
+        live_status("[5/5] building terminal + HTML execution dashboard")
+        _run_module(
+            "rebalance_backtest.report_cli",
+            ["--initial-capital", str(args.initial_capital)],
+        )
+    else:
+        live_status("[1/6] discovering ETF candidates")
+        _run_module("rebalance_backtest.universe_cli", [])
+
+        live_status("[2/6] updating dynamic ETF universe")
+        _run_module("rebalance_backtest.dynamic_cli", [])
+
+        live_status("[3/6] starting broad-signal rotation")
+        _run_module("rebalance_backtest.rotation_cli", common)
+
+        live_status("[4/6] starting parameter sweep")
         _run_module("rebalance_backtest.sweep_cli", common)
 
-        live_status("[5/5] starting peak + hedge experiment")
+        live_status("[5/6] starting peak + hedge experiment")
         _run_module("rebalance_backtest.hedge_sweep_cli", common)
+
+        live_status("[6/6] building terminal + HTML execution dashboard")
+        _run_module(
+            "rebalance_backtest.report_cli",
+            ["--initial-capital", str(args.initial_capital)],
+        )
 
     if args.no_push:
         finish_status("[done] experiments complete; push skipped")
