@@ -43,6 +43,41 @@ REAL_ASSET_KEYWORDS = (
     "농산물",
 )
 
+THEME_KEYWORDS = (
+    ("SEMICONDUCTOR", ("반도체", "필라델피아반도체", "SOX")),
+    ("BANK_FINANCE", ("은행", "금융", "증권", "보험")),
+    ("DIVIDEND", ("배당", "고배당")),
+    ("BIO_HEALTHCARE", ("바이오", "헬스케어")),
+    ("AI_TECH", ("AI", "인공지능", "빅테크", "로봇")),
+    ("ENERGY", ("에너지", "원유", "OIL")),
+    ("GOLD", ("골드", "금선물", "금현물")),
+    ("SILVER", ("은선물", "SILVER")),
+    ("AGRICULTURE", ("농산물",)),
+    ("COPPER", ("구리",)),
+    ("USD", ("달러", "USD")),
+    ("BOND", ("국채", "국고채", "채권", "미국채", "KOFR", "CD금리", "머니마켓", "단기채", "초단기", "금리")),
+)
+
+SAFE_KEYWORDS = (
+    "KOFR",
+    "CD금리",
+    "머니마켓",
+    "단기채",
+    "초단기",
+    "금리액티브",
+)
+
+HEDGE_KEYWORDS = (
+    "국채",
+    "국고채",
+    "미국채",
+    "채권",
+    "달러",
+    "골드",
+    "금선물",
+    "금현물",
+)
+
 
 @dataclass(frozen=True)
 class DiscoveryConfig:
@@ -64,6 +99,29 @@ def _classify_name(name: str) -> str:
     if any(keyword.upper() in upper for keyword in REAL_ASSET_KEYWORDS):
         return "REAL_ASSET"
     return "EQUITY"
+
+
+def _theme_from_name(name: str) -> str:
+    upper = str(name).upper()
+    for theme, keywords in THEME_KEYWORDS:
+        if any(keyword.upper() in upper for keyword in keywords):
+            return theme
+    if any(keyword in upper for keyword in ("200", "코스피", "KOSPI", "코스닥150", "KOSDAQ150")):
+        return "BROAD_MARKET"
+    return "OTHER"
+
+
+def _defensive_role(name: str, bucket: str) -> str:
+    upper = str(name).upper()
+    if bucket == "EQUITY":
+        return "RISK"
+    if any(keyword.upper() in upper for keyword in SAFE_KEYWORDS):
+        return "SAFE"
+    if any(keyword.upper() in upper for keyword in HEDGE_KEYWORDS):
+        return "HEDGE"
+    if bucket == "REAL_ASSET":
+        return "DIVERSIFIER"
+    return "HEDGE"
 
 
 def _numeric(series: pd.Series) -> pd.Series:
@@ -124,6 +182,11 @@ def fetch_current_kr_etf_listing() -> pd.DataFrame:
     listing["symbol"] = listing["symbol"].astype(str).str.zfill(6)
     listing["yahoo_ticker"] = listing["symbol"] + ".KS"
     listing["bucket"] = listing["name"].map(_classify_name)
+    listing["theme"] = listing["name"].map(_theme_from_name)
+    listing["defensive_role"] = [
+        _defensive_role(name, bucket)
+        for name, bucket in zip(listing["name"], listing["bucket"])
+    ]
     listing["listing_date_observed"] = date.today().isoformat()
 
     listing = listing.drop_duplicates("symbol").reset_index(drop=True)
@@ -320,6 +383,13 @@ def score_universe(
                 "name": row.name,
                 "bucket": row.bucket,
                 "history_sessions": int(len(series)),
+                "theme": getattr(row, "theme", _theme_from_name(row.name)),
+                "defensive_role": getattr(
+                    row,
+                    "defensive_role",
+                    _defensive_role(row.name, row.bucket),
+                ),
+                "price_listing": float(getattr(row, "price_listing", 0.0)),
                 "momentum_score": _relative_momentum(series, safe),
                 "return_1d": _simple_return(series, 1),
                 "return_5d": _simple_return(series, 5),
