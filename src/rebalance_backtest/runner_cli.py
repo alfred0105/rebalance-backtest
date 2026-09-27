@@ -69,6 +69,8 @@ def _publish(*, include_sweep: bool) -> None:
         Path("universes/active_universe.json"),
         Path("universes/dynamic_selector_state.json"),
         Path("universes/snapshots"),
+        Path("universes/daily_candidates"),
+        Path("universes/daily_active"),
     ]
     if include_sweep:
         reports.insert(1, Path("runs/latest_sweep_report.txt"))
@@ -117,7 +119,10 @@ def main() -> None:
         _run_module("rebalance_backtest.universe_cli", [])
 
         live_status("[2/5] updating dynamic ETF universe")
-        _run_module("rebalance_backtest.dynamic_cli", [])
+        _run_module(
+            "rebalance_backtest.dynamic_cli",
+            ["--capital", str(args.initial_capital)],
+        )
 
         live_status("[3/5] starting broad-signal rotation")
         _run_module("rebalance_backtest.rotation_cli", common)
@@ -135,7 +140,10 @@ def main() -> None:
         _run_module("rebalance_backtest.universe_cli", [])
 
         live_status("[2/6] updating dynamic ETF universe")
-        _run_module("rebalance_backtest.dynamic_cli", [])
+        _run_module(
+            "rebalance_backtest.dynamic_cli",
+            ["--capital", str(args.initial_capital)],
+        )
 
         live_status("[3/6] starting broad-signal rotation")
         _run_module("rebalance_backtest.rotation_cli", common)
