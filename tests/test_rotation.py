@@ -4,12 +4,13 @@ import pandas as pd
 from rebalance_backtest.rotation import AdaptiveRotationStrategy
 
 
-def _strategy() -> AdaptiveRotationStrategy:
+def _strategy(**kwargs) -> AdaptiveRotationStrategy:
     return AdaptiveRotationStrategy(
         stock_tickers=["MKT", "A", "B", "C"],
         bond_tickers=["BOND"],
         safe_ticker="SAFE",
         market_ticker="MKT",
+        **kwargs,
     )
 
 
@@ -82,7 +83,7 @@ def test_emergency_brake_can_cut_thirty_five_percentage_points_in_one_day():
 
 
 def test_normal_rebalance_moves_only_to_band_edge():
-    st = _strategy()
+    st = _strategy(no_trade_band=0.05, min_trade_turnover=0.02)
     ideal = pd.Series(
         {"MKT": 0.40, "A": 0.20, "B": 0.20, "C": 0.0, "BOND": 0.0, "SAFE": 0.20}
     )
@@ -114,3 +115,9 @@ def test_sector_selection_only_refreshes_when_month_changes():
 
     feb = st._refresh_monthly_sectors(changed_scores, pd.Timestamp("2026-02-02"))
     assert feb == ("C", "B")
+
+
+def test_default_rotation_uses_sparser_rebalance_settings():
+    st = _strategy()
+    assert np.isclose(st.no_trade_band, 0.075)
+    assert np.isclose(st.min_trade_turnover, 0.03)
