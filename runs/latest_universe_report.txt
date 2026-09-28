@@ -1,36 +1,36 @@
 === Automatic Korean ETF discovery ===
-Observed universe: 1175 | scored after filters/history: 74 | monthly snapshot=universes/snapshots/2026-09.csv
-Filter: exclude leverage/inverse; prefilter by liquidity + current 3M strength + defensive coverage; require sufficient daily history; correlation-cluster near-duplicates.
+Observed universe: 1171 | scored after filters/history: 74 | monthly snapshot=universes/snapshots/2026-09.csv | daily scored snapshot=universes/daily_candidates/2026-09-28.csv
+Filter: exclude leverage/inverse; prefilter by liquidity + current 3M strength + defensive coverage; require sufficient daily history; correlation-cluster near-duplicates; tag economic themes and defensive roles for downstream concentration controls.
 
 === Aggressive/equity candidates ===
-   ticker                name bucket  screen_score  momentum_score  cluster_id  return_1d  return_5d  return_20d  return_63d  peak_drawdown_60d  annual_vol_63d  corr_market_126d  max_drawdown_252d
-395270.KS     HANARO Fn K-반도체 EQUITY        0.7865          0.8700           2     0.0224     0.1035      0.1129     -0.2394            -0.2477          1.0401            0.9536            -0.5350
-458730.KS      TIGER 미국배당다우존스 EQUITY        0.7858          0.6123           3    -0.0010    -0.0213     -0.0566     -0.0608            -0.0745          0.1128           -0.2432            -0.0838
-381180.KS TIGER 미국필라델피아반도체나스닥 EQUITY        0.7662          0.8424           4     0.0258     0.1162      0.0742     -0.1908            -0.2175          0.5227            0.7562            -0.3201
-314250.KS    KODEX 미국빅테크10(H) EQUITY        0.7480          1.0699           5     0.0042     0.0477      0.0603      0.1511             0.0000          0.2362            0.6384            -0.2377
-091170.KS            KODEX 은행 EQUITY        0.7480          0.8471           6    -0.0194    -0.0235      0.0240      0.1384            -0.0468          0.3253            0.2920            -0.1905
-418670.KS    TIGER 글로벌AI사이버보안 EQUITY        0.7257          0.8454           7     0.0145     0.0270      0.1696      0.2109             0.0000          0.4821            0.2563            -0.3191
-379810.KS      KODEX 미국나스닥100 EQUITY        0.6628          0.5891          10     0.0089     0.0519      0.0359     -0.0811            -0.1077          0.2211            0.6451            -0.1656
-289480.KS       TIGER 200커버드콜 EQUITY        0.6459          0.8487          11     0.0060     0.0520      0.0656      0.1144             0.0000          0.4658            0.8710            -0.1849
-379800.KS      KODEX 미국S&P500 EQUITY        0.6270          0.4621          13     0.0004     0.0151     -0.0046     -0.0703            -0.0904          0.1443            0.3504            -0.1170
-481180.KS       SOL 미국AI소프트웨어 EQUITY        0.6074          0.6107          16    -0.0033     0.0048      0.0683      0.1437            -0.0215          0.3577            0.2112            -0.3374
-0008T0.KS      SOL 화장품TOP3플러스 EQUITY        0.5615          0.5600          21     0.0003    -0.0222     -0.1190      0.3050            -0.1635          0.5254            0.1599            -0.2522
-161510.KS           PLUS 고배당주 EQUITY        0.5561          0.5367          22    -0.0066    -0.0102     -0.0198      0.0519            -0.0326          0.2465            0.5779            -0.2068
+   ticker                  name bucket         theme defensive_role  price_listing  screen_score  momentum_score  cluster_id  return_1d  return_5d  return_20d  return_63d  peak_drawdown_60d  annual_vol_63d  corr_market_126d  max_drawdown_252d
+091170.KS              KODEX 은행 EQUITY  BANK_FINANCE           RISK        16485.0        0.7703          0.8811           4     0.0070    -0.0205      0.0257      0.1572            -0.0401          0.3246            0.2907            -0.1905
+381180.KS   TIGER 미국필라델피아반도체나스닥 EQUITY SEMICONDUCTOR           RISK        44685.0        0.7703          0.8115           3     0.0028     0.1023      0.0555     -0.2124            -0.2153          0.5185            0.7567            -0.3201
+395270.KS       HANARO Fn K-반도체 EQUITY SEMICONDUCTOR           RISK        60015.0        0.7588          0.8209           5    -0.0100     0.1036      0.0817     -0.2926            -0.2452          1.0312            0.9537            -0.5350
+314250.KS      KODEX 미국빅테크10(H) EQUITY       AI_TECH           RISK        64595.0        0.7318          0.9743           6    -0.0063     0.0393      0.0467      0.1358            -0.0063          0.2366            0.6372            -0.2377
+458730.KS        TIGER 미국배당다우존스 EQUITY      DIVIDEND           RISK        14375.0        0.6980          0.4769           8    -0.0083    -0.0303     -0.0607     -0.0730            -0.0821          0.1131           -0.2398            -0.0876
+418670.KS      TIGER 글로벌AI사이버보안 EQUITY       AI_TECH           RISK        18410.0        0.6682          0.7159           9    -0.0419    -0.0270      0.0639      0.1493            -0.0419          0.4905            0.2570            -0.3191
+379810.KS        KODEX 미국나스닥100 EQUITY         OTHER           RISK        27475.0        0.6561          0.5319          10    -0.0051     0.0326      0.0249     -0.0950            -0.1122          0.2200            0.6458            -0.1656
+289480.KS         TIGER 200커버드콜 EQUITY  BROAD_MARKET           RISK        13315.0        0.6311          0.8275          13     0.0004     0.0479      0.0585      0.0956             0.0000          0.4647            0.8711            -0.1849
+481180.KS         SOL 미국AI소프트웨어 EQUITY       AI_TECH           RISK        16585.0        0.6243          0.5937          14     0.0012    -0.0048      0.0330      0.1664            -0.0203          0.3553            0.2102            -0.3374
+371450.KS TIGER 글로벌클라우드컴퓨팅INDXX EQUITY         OTHER           RISK        13600.0        0.6061          0.6111          16    -0.0198    -0.0109      0.0026      0.1158            -0.0728          0.3555            0.1973            -0.2617
+0008T0.KS        SOL 화장품TOP3플러스 EQUITY         OTHER           RISK        17465.0        0.5892          0.5527          19     0.0034    -0.0105     -0.0956      0.3154            -0.1606          0.5251            0.1574            -0.2522
+161510.KS             PLUS 고배당주 EQUITY      DIVIDEND           RISK        24950.0        0.5872          0.5272          20     0.0044    -0.0088     -0.0124      0.0548            -0.0283          0.2466            0.5755            -0.2068
 
 === Defensive/real-asset candidates ===
-   ticker                   name     bucket  screen_score  momentum_score  cluster_id  return_1d  return_5d  return_20d  return_63d  peak_drawdown_60d  annual_vol_63d  corr_market_126d  max_drawdown_252d
-130680.KS  TIGER 원유선물Enhanced(H) REAL_ASSET        0.8176          0.9122           0    -0.0458    -0.1054      0.1386      0.2860            -0.1054          0.4821           -0.3441            -0.3238
-271060.KS       KODEX 3대농산물선물(H) REAL_ASSET        0.8007          0.6179           1    -0.0197    -0.0175      0.0176      0.1709            -0.0334          0.2269           -0.0347            -0.1398
-219390.KS RISE 미국S&P원유생산기업(합성 H) REAL_ASSET        0.7061          0.5931           8    -0.0224    -0.0844      0.0006      0.1557            -0.0844          0.3079           -0.3051            -0.2334
-448330.KS         KODEX 삼성전자채권혼합  DEFENSIVE        0.7027          0.8974           9     0.0071     0.0377      0.0214     -0.0284            -0.0313          0.2978            0.9495            -0.1497
-0043B0.KS          TIGER 머니마켓액티브  DEFENSIVE        0.6351          0.2252          12     0.0001     0.0010      0.0030      0.0096             0.0000          0.0013            0.0716             0.0000
-469830.KS           SOL 초단기채권액티브  DEFENSIVE        0.6250          0.2148          15     0.0004     0.0012      0.0031      0.0094             0.0000          0.0024            0.0648            -0.0002
-488770.KS          KODEX 머니마켓액티브  DEFENSIVE        0.6250          0.2105          14     0.0005     0.0011      0.0029      0.0090             0.0000          0.0015            0.0687             0.0000
-459580.KS      KODEX CD금리액티브(합성)  DEFENSIVE        0.6014          0.1283          18     0.0001     0.0009      0.0027      0.0076             0.0000          0.0013            0.0846             0.0000
-423160.KS    KODEX KOFR금리액티브(합성)  DEFENSIVE        0.6014          0.1056          17     0.0005     0.0009      0.0028      0.0074             0.0000          0.0016            0.0432            -0.0000
-357870.KS    TIGER CD금리투자KIS(합성)  DEFENSIVE        0.5878          0.1401          19     0.0002     0.0010      0.0028      0.0081             0.0000          0.0016            0.1141            -0.0001
-214980.KS         KODEX 단기채권PLUS  DEFENSIVE        0.5642          0.0149          20     0.0002     0.0002      0.0014      0.0069             0.0000          0.0023            0.0684            -0.0008
-455890.KS           RISE 머니마켓액티브  DEFENSIVE        0.5372          0.0104          24     0.0002     0.0010      0.0029      0.0088             0.0000          0.0013            0.1066            -0.0137
+   ticker                   name     bucket       theme defensive_role  price_listing  screen_score  momentum_score  cluster_id  return_1d  return_5d  return_20d  return_63d  peak_drawdown_60d  annual_vol_63d  corr_market_126d  max_drawdown_252d
+130680.KS  TIGER 원유선물Enhanced(H) REAL_ASSET      ENERGY    DIVERSIFIER         7920.0        0.8277          1.1412           0     0.0454    -0.0293      0.1867      0.4000            -0.0647          0.4801           -0.3405            -0.3238
+271060.KS       KODEX 3대농산물선물(H) REAL_ASSET AGRICULTURE    DIVERSIFIER         8930.0        0.8277          0.6509           1    -0.0039    -0.0203     -0.0138      0.1763            -0.0372          0.2262           -0.0285            -0.1398
+219390.KS RISE 미국S&P원유생산기업(합성 H) REAL_ASSET      ENERGY    DIVERSIFIER         7890.0        0.7939          0.7304           2     0.0133    -0.0415     -0.0019      0.2020            -0.0721          0.3032           -0.3015            -0.2334
+448330.KS         KODEX 삼성전자채권혼합  DEFENSIVE        BOND          HEDGE        17630.0        0.6993          0.8598           7    -0.0023     0.0357      0.0171     -0.0515            -0.0159          0.2944            0.9499            -0.1497
+0043B0.KS          TIGER 머니마켓액티브  DEFENSIVE        BOND           SAFE       103790.0        0.6503          0.2237          11     0.0001     0.0009      0.0029      0.0095             0.0000          0.0012            0.0717             0.0000
+488770.KS          KODEX 머니마켓액티브  DEFENSIVE        BOND           SAFE       105650.0        0.6402          0.2105          12     0.0001     0.0010      0.0029      0.0090             0.0000          0.0015            0.0718             0.0000
+475630.KS    TIGER CD1년금리액티브(합성)  DEFENSIVE        BOND           SAFE      1078495.0        0.6233          0.1520          15     0.0001     0.0008      0.0027      0.0081             0.0000          0.0014            0.0804             0.0000
+423160.KS    KODEX KOFR금리액티브(합성)  DEFENSIVE        BOND           SAFE       110925.0        0.5980          0.1080          17     0.0002     0.0011      0.0028      0.0076             0.0000          0.0015            0.0404            -0.0000
+357870.KS    TIGER CD금리투자KIS(합성)  DEFENSIVE        BOND           SAFE        58125.0        0.5912          0.1318          18    -0.0001     0.0007      0.0026      0.0077            -0.0001          0.0016            0.1227            -0.0001
+455890.KS           RISE 머니마켓액티브  DEFENSIVE        BOND           SAFE        55600.0        0.5608          0.0017          22     0.0000     0.0008      0.0026      0.0085             0.0000          0.0013            0.1054            -0.0137
+0048J0.KS        KODEX 미국머니마켓액티브  DEFENSIVE        BOND           SAFE        13575.0        0.4662         -0.9598          26    -0.0004    -0.0174     -0.0141     -0.1115            -0.1195          0.0921           -0.3174            -0.1351
+438080.KS ACE 미국S&P500미국채혼합50액티브  DEFENSIVE        BOND          HEDGE        13865.0        0.4561         -0.2705          28    -0.0022    -0.0089     -0.0160     -0.0979            -0.1095          0.1049            0.1240            -0.1265
 
 === How to use this ===
 This is a discovery shortlist, not an automatic trade list. Candidates must be validated in dated walk-forward tests before they are promoted into the live rotation universe.

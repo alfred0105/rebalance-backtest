@@ -1,47 +1,62 @@
 {
   "aggressive": [
     {
-      "cluster_id": 2,
-      "entered": "2026-09-27",
-      "last_score": 0.7864864864864866,
-      "name": "HANARO Fn K-반도체",
-      "ticker": "395270.KS"
+      "cluster_id": 4,
+      "defensive_role": "RISK",
+      "entered": "2026-09-28",
+      "last_score": 0.7702702702702703,
+      "name": "KODEX 은행",
+      "price_listing": 16485.0,
+      "theme": "BANK_FINANCE",
+      "ticker": "091170.KS"
     },
     {
       "cluster_id": 3,
-      "entered": "2026-09-27",
-      "last_score": 0.7858108108108108,
-      "name": "TIGER 미국배당다우존스",
-      "ticker": "458730.KS"
+      "defensive_role": "RISK",
+      "entered": "2026-09-28",
+      "last_score": 0.7702702702702703,
+      "name": "TIGER 미국필라델피아반도체나스닥",
+      "price_listing": 44685.0,
+      "theme": "SEMICONDUCTOR",
+      "ticker": "381180.KS"
     },
     {
-      "cluster_id": 4,
-      "entered": "2026-09-27",
-      "last_score": 0.7662162162162162,
-      "name": "TIGER 미국필라델피아반도체나스닥",
-      "ticker": "381180.KS"
+      "cluster_id": 8,
+      "defensive_role": "RISK",
+      "entered": "2026-09-28",
+      "last_score": 0.6979729729729731,
+      "name": "TIGER 미국배당다우존스",
+      "price_listing": 14375.0,
+      "theme": "DIVIDEND",
+      "ticker": "458730.KS"
     }
   ],
-  "cooldowns": {
-    "130680.KS": "2026-10-02"
-  },
+  "cooldowns": {},
   "defensive": [
     {
-      "cluster_id": 1,
-      "entered": "2026-09-27",
-      "last_score": 0.8006756756756757,
-      "name": "KODEX 3대농산물선물(H)",
-      "ticker": "271060.KS"
+      "cluster_id": 0,
+      "defensive_role": "DIVERSIFIER",
+      "entered": "2026-09-28",
+      "last_score": 0.8277027027027027,
+      "name": "TIGER 원유선물Enhanced(H)",
+      "price_listing": 7920.0,
+      "theme": "ENERGY",
+      "ticker": "130680.KS"
     },
     {
-      "cluster_id": 31,
-      "entered": "2026-09-27",
-      "last_score": 0.4121621621621621,
-      "name": "KODEX 은선물(H)",
-      "ticker": "144600.KS"
+      "cluster_id": 1,
+      "defensive_role": "DIVERSIFIER",
+      "entered": "2026-09-28",
+      "last_score": 0.8277027027027026,
+      "name": "KODEX 3대농산물선물(H)",
+      "price_listing": 8930.0,
+      "theme": "AGRICULTURE",
+      "ticker": "271060.KS"
     }
   ],
-  "last_run_date": "2026-09-27",
+  "last_run_date": "2026-09-28",
   "last_selection_month": "2026-09",
-  "version": 1
+  "risk_state": "RECOVERY_2",
+  "risk_state_counter": 0,
+  "version": 2
 }

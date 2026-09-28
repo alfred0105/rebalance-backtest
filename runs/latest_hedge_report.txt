@@ -1,48 +1,54 @@
 === Peak protection + hedge rotation experiment ===
-Data: 2018-09-12 -> 2026-09-23 | requested start=2015-01-01 | safe=KODEX 단기채권
+Data: 2018-09-12 -> 2026-09-28 | requested start=2015-01-01 | safe=KODEX 단기채권
 Hedges: KODEX 골드선물(H)(132030.KS), KODEX 미국달러선물(261240.KS), KODEX 미국30년국채울트라선물(H)(304660.KS)
-Initial capital: 10,000,000 | transaction cost: 5.0 bps
+Initial capital: 300,000 | transaction cost: 1.5 bps
 
 === Same-window baselines ===
                      cagr  annual_vol  sharpe  sortino  max_drawdown  calmar  trade_count  total_turnover  total_transaction_cost
 variant                                                                                                                          
-kodex200_buy_hold  0.2072      0.2849  0.8302   1.0548       -0.4081  0.5077          0.0          0.0000                  0.0000
-static_60_40       0.1371      0.1685  0.8785   1.1115       -0.2523  0.5433         96.0          1.3158              10394.8886
-broad_signal       0.1701      0.1909  0.9530   0.9717       -0.2676  0.6356        422.0         27.9404             197443.6620
+kodex200_buy_hold  0.2055      0.2848  0.8259   1.0497       -0.4081  0.5035          0.0          0.0000                     0.0
+static_60_40       0.1361      0.1684  0.8739   1.1061       -0.2523  0.5392         96.0          1.3158                   112.0
+broad_signal       0.1628      0.1854  0.9418   0.9624       -0.2609  0.6241        344.0         24.0375                  2314.0
 
 === Experiment variants (Sharpe order) ===
                            cagr  annual_vol  sharpe  sortino  max_drawdown  calmar  trade_count  total_turnover  total_transaction_cost
 variant                                                                                                                                
-peak_hedge               0.1763      0.1832  1.0153   1.1062       -0.2512  0.7020        551.0         45.7478             366732.9974
-peak_hedge_low_turnover  0.1715      0.1796  1.0085   1.1015       -0.2509  0.6836        458.0         37.1956             297281.3135
-peak_only                0.1697      0.1784  1.0046   1.0279       -0.2336  0.7262        438.0         28.9553             222332.8454
-hedge_only               0.1777      0.1946  0.9735   1.0438       -0.2805  0.6334        470.0         38.6681             285565.2863
-broad_signal             0.1701      0.1909  0.9530   0.9717       -0.2676  0.6356        422.0         27.9404             197443.6620
+peak_hedge               0.1720      0.1795  1.0120   1.1037       -0.2507  0.6859        459.0         37.2474                  4268.0
+peak_only                0.1648      0.1747  0.9981   1.0194       -0.2331  0.7067        349.0         23.6285                  2560.0
+peak_hedge_low_turnover  0.1648      0.1774  0.9857   1.0697       -0.2496  0.6601        397.0         31.3562                  3471.0
+hedge_only               0.1705      0.1888  0.9648   1.0366       -0.2744  0.6214        397.0         32.5313                  3344.0
+broad_signal             0.1628      0.1854  0.9418   0.9624       -0.2609  0.6241        344.0         24.0375                  2314.0
 
 === Latest peak+hedge state ===
-RISK_ON | market=0.658 | defensive=0.311 | 20d=5.0% | peakDD=-18.2% | peak_lock=False | brake=False
-Ideal sleeves: stock=90.0% defensive=9.0% safe=1.0%
+RISK_ON | market=0.603 | defensive=0.199 | 20d=2.8% | peakDD=-16.5% | peak_lock=False | brake=False
+Ideal sleeves: stock=90.0% defensive=6.0% safe=4.0%
 
 === Latest scores ===
            score                   name
-102780.KS  0.820             KODEX 삼성그룹
-091160.KS  0.701              KODEX 반도체
-069500.KS  0.644              KODEX 200
-132030.KS  0.311          KODEX 골드선물(H)
+102780.KS  0.800             KODEX 삼성그룹
+091160.KS  0.647              KODEX 반도체
+069500.KS  0.588              KODEX 200
+132030.KS  0.199          KODEX 골드선물(H)
 153130.KS  0.000             KODEX 단기채권
-229200.KS -0.283           KODEX 코스닥150
-114260.KS -0.621            KODEX 국고채3년
-304660.KS -0.778  KODEX 미국30년국채울트라선물(H)
-261240.KS -1.148           KODEX 미국달러선물
+229200.KS -0.265           KODEX 코스닥150
+114260.KS -0.726            KODEX 국고채3년
+261240.KS -1.085           KODEX 미국달러선물
+304660.KS -1.126  KODEX 미국30년국채울트라선물(H)
 
 === Next-step suggested allocation ===
-153130.KS | KODEX 단기채권 | 37.6%
-069500.KS | KODEX 200 | 27.5%
-102780.KS | KODEX 삼성그룹 | 13.8%
-091160.KS | KODEX 반도체 | 13.7%
-132030.KS | KODEX 골드선물(H) | 7.4%
+069500.KS | KODEX 200 | 31.3%
+153130.KS | KODEX 단기채권 | 27.6%
+102780.KS | KODEX 삼성그룹 | 15.7%
+091160.KS | KODEX 반도체 | 15.6%
+132030.KS | KODEX 골드선물(H) | 9.7%
+261240.KS | KODEX 미국달러선물 | 0.2%
 
 Peak protection rule:
 60d peak drawdown <= -4% AND (20d return <= 0 OR sector breadth <= 0)
 Caps: -4%=>80%, -6%=>65%, -8%=>50%, -10%=>35% stock max.
 Defensive rotation: choose up to 2 positive safe-relative momentum leaders across KR 3Y govt bond + gold + USD + US 30Y.
+
+=== Whole-share small-capital replay ===
+Initial capital: 300,000 KRW
+Ending value: 1,076,645 KRW
+CAGR: 17.22% | MDD: -23.51% | Sharpe: 1.008 | Residual cash: 5,093 KRW | Distributions: 24,088 KRW
