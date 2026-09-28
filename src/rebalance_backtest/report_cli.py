@@ -138,7 +138,7 @@ def _read_csv(path: Path, *, index_col: int | None = 0) -> pd.DataFrame:
     frame = pd.read_csv(path, index_col=index_col)
     if index_col is not None and len(frame):
         try:
-            frame.index = pd.to_datetime(frame.index)
+            frame.index = pd.to_datetime(frame.index, format="mixed")
         except Exception:
             pass
     return frame
@@ -516,7 +516,12 @@ def _paper_portfolio_table(frame: pd.DataFrame) -> pd.DataFrame:
         shares = pd.to_numeric(shown.get("shares", 0), errors="coerce").fillna(0)
         shown = shown.loc[(~risky) | (shares > 0)].copy()
     shown["종목명"] = shown.get("name", shown.get("ticker", "")).astype(str)
-    shown["수량"] = pd.to_numeric(shown.get("shares", 0), errors="coerce").fillna(0).astype(int)
+    shown["수량"] = (
+        pd.to_numeric(shown.get("shares", 0), errors="coerce")
+        .fillna(0)
+        .astype(int)
+        .astype(object)
+    )
     shown["현재가"] = pd.to_numeric(shown.get("price", 0), errors="coerce").fillna(0).map(
         lambda x: "" if x <= 1 else f"{int(round(x)):,}원"
     )
