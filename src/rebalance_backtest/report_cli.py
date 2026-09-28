@@ -507,6 +507,164 @@ def _plan_signature(frame: pd.DataFrame) -> tuple:
     )
 
 
+def _paper_portfolio_table(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    shown = frame.copy()
+    if "ticker" in shown.columns:
+        risky = shown["ticker"].astype(str) != "CASH"
+        shares = pd.to_numeric(shown.get("shares", 0), errors="coerce").fillna(0)
+        shown = shown.loc[(~risky) | (shares > 0)].copy()
+    shown["종목명"] = shown.get("name", shown.get("ticker", "")).astype(str)
+    shown["수량"] = pd.to_numeric(shown.get("shares", 0), errors="coerce").fillna(0).astype(int)
+    shown["현재가"] = pd.to_numeric(shown.get("price", 0), errors="coerce").fillna(0).map(
+        lambda x: "" if x <= 1 else f"{int(round(x)):,}원"
+    )
+    shown["평가금액"] = pd.to_numeric(shown.get("value", 0), errors="coerce").fillna(0).map(
+        lambda x: f"{int(round(x)):,}원"
+    )
+    shown["비중"] = pd.to_numeric(shown.get("weight", 0), errors="coerce").fillna(0).map(
+        lambda x: f"{float(x):.1%}"
+    )
+    shown.loc[shown.get("ticker", "").astype(str) == "CASH", "수량"] = ""
+    return shown[["종목명", "수량", "현재가", "평가금액", "비중"]]
+
+
+def _paper_change_rows(
+    portfolio_dir: Path,
+    trades_path: Path,
+    active_dir: Path,
+    names: dict[str, str],
+    *,
+    max_events: int = 100,
+) -> str:
+    files = sorted(portfolio_dir.glob("*.csv"))
+    if not files:
+        return "<p class='muted'>paper 계좌 snapshot이 아직 없습니다.</p>"
+
+    trades = pd.read_csv(trades_path) if trades_path.exists() else pd.DataFrame()
+    rows: list[str] = []
+    previous_frame = pd.DataFrame()
+    previous_signature: tuple = tuple()
+    previous_risk: str | None = None
+
+    for path in files:
+        date_key = path.stem
+        frame = pd.read_csv(path)
+        signature = tuple(
+            sorted(
+                (
+                    str(row["ticker"]),
+                    int(row["shares"]),
+                )
+                for _, row in frame.iterrows()
+                if str(row["ticker"]) != "CASH" and int(row.get("shares", 0)) > 0
+            )
+        )
+        active_path = active_dir / f"{date_key}.json"
+        active = (
+            json.loads(active_path.read_text(encoding="utf-8"))
+            if active_path.exists()
+            else {}
+        )
+        allocation = active.get("allocation", {})
+        risk = str(allocation.get("risk_state", "NORMAL"))
+        events = active.get("events") or []
+
+        day_trades = pd.DataFrame()
+        if not trades.empty and "date" in trades.columns:
+            day_trades = trades.loc[trades["date"].astype(str) == date_key].copy()
+
+        changed = (
+            not previous_frame.empty
+            and (
+                signature != previous_signature
+                or risk != previous_risk
+                or bool(events)
+                or not day_trades.empty
+            )
+        )
+        if previous_frame.empty:
+            changed = True
+
+        if changed:
+            reasons: list[str] = []
+            for event in events:
+                action = ACTION_LABELS.get(
+                    str(event.get("action")),
+                    str(event.get("action", "")),
+                )
+                ticker = str(event.get("ticker") or event.get("in") or "")
+                name = names.get(
+                    ticker,
+                    str(event.get("name") or event.get("in_name") or ticker),
+                )
+                reason = _translate_reason(event.get("reason"))
+                item = f"{action}: {name}"
+                if reason:
+                    item += f" · {reason}"
+                reasons.append(item)
+            if not day_trades.empty:
+                reasons.append(_trade_change_summary(day_trades, names))
+            if not reasons:
+                reasons.append("위험상태 또는 목표 포트폴리오 변경")
+
+            after_equity = float(
+                pd.to_numeric(frame.get("value", 0), errors="coerce").fillna(0).sum()
+            )
+            fees = (
+                float(pd.to_numeric(day_trades.get("commission", 0), errors="coerce").fillna(0).sum())
+                if not day_trades.empty
+                else 0.0
+            )
+            detail_id = f"paper-{len(rows)}"
+            before_html = (
+                _html_table(_paper_portfolio_table(previous_frame))
+                if not previous_frame.empty
+                else "<p class='muted'>첫 paper 계좌 기록</p>"
+            )
+            after_html = _html_table(_paper_portfolio_table(frame))
+            trade_html = (
+                _html_table(_format_trade_table(day_trades.set_index("date"), names))
+                if not day_trades.empty
+                else "<p class='muted'>실제 매매 없음</p>"
+            )
+            reason_text = " / ".join(reasons)
+            rows.append(
+                f"""
+<tr class="change-row" onclick="toggleRow('{detail_id}')">
+  <td>{html.escape(date_key)}</td>
+  <td>{html.escape(RISK_STATE_LABELS.get(risk, risk))}</td>
+  <td>{html.escape(reason_text)}</td>
+  <td>{after_equity:,.0f}원</td>
+  <td>{fees:,.0f}원</td>
+  <td>펼치기</td>
+</tr>
+<tr id="{detail_id}" class="detail-row" style="display:none">
+  <td colspan="6">
+    <div class="detail-grid">
+      <div><h4>변경 전 paper 포트폴리오</h4>{before_html}</div>
+      <div><h4>그날 실제 paper 매매</h4>{trade_html}</div>
+      <div><h4>변경 후 paper 포트폴리오</h4>{after_html}</div>
+    </div>
+    <p class="reason"><b>변경 이유:</b> {html.escape(reason_text)}</p>
+  </td>
+</tr>"""
+            )
+
+        previous_frame = frame
+        previous_signature = signature
+        previous_risk = risk
+
+    return (
+        "<table class='data-table change-table'><thead><tr>"
+        "<th>날짜</th><th>위험상태</th><th>주요 변화</th><th>평가금액</th>"
+        "<th>수수료</th><th>상세</th></tr></thead><tbody>"
+        + "".join(rows[-max_events:][::-1])
+        + "</tbody></table>"
+    )
+
+
 def _forward_change_rows(
     execution_dir: Path,
     active_dir: Path,
@@ -896,8 +1054,17 @@ def main() -> None:
     allocation = active.get("allocation", {})
     risk_state = str(allocation.get("risk_state", "NORMAL"))
 
-    forward_timeline = _forward_change_rows(
-        daily_execution_dir,
+    paper_portfolio = _read_csv(
+        Path("runs/latest_live_portfolio.csv"),
+        index_col=None,
+    )
+    paper_history = _read_csv(
+        Path("runs/paper_account_history.csv"),
+        index_col=None,
+    )
+    paper_timeline = _paper_change_rows(
+        Path("runs/paper_portfolios"),
+        Path("runs/paper_account_trades.csv"),
         Path("universes/daily_active"),
         names,
     )
@@ -982,16 +1149,22 @@ function toggleRow(id){{
 </div>
 
 <section class="card">
-<h2>현재 30만원 실제 정수주 포트폴리오</h2>
-<p class="muted">현재 동적 목표비중을 1주 단위로 변환한다. 첫 1주가 목표보다 4%p 이상 과대해지는 종목은 억지로 편입하지 않고 현금으로 남긴다.</p>
-<div class="scroll">{_html_table(plan_html)}</div>
-<p><b>남는 현금:</b> {cash:,.0f}원 ({cash/capital:.1%}) · <b>초기 주문 예상 토스 수수료:</b> {execution.total_commission:,}원</p>
+<h2>현재 30만원 forward paper 포트폴리오</h2>
+<p class="muted">전날 계좌를 이어받아 오늘 목표와의 차이만 매매한 실제 paper 계좌 상태다. 단순히 매일 30만원을 새로 배분한 표가 아니다.</p>
+<div class="scroll">{_html_table(_paper_portfolio_table(paper_portfolio))}</div>
 </section>
 
 <section class="card">
 <h2>동적 전략 변경일 타임라인</h2>
-<p class="muted">일별 snapshot이 쌓이면서 실제로 목표 정수주 구성 또는 위험상태가 바뀐 날짜만 표시한다. 행을 누르면 포트폴리오를 펼쳐볼 수 있다.</p>
-<div class="scroll">{forward_timeline}</div>
+<p class="muted">실제 paper 계좌의 보유수량, 위험상태 또는 매매가 바뀐 날짜만 표시한다. 행을 누르면 변경 전 → 그날 매매 → 변경 후를 볼 수 있다.</p>
+<div class="scroll">{paper_timeline}</div>
+</section>
+
+<section class="card">
+<h2>오늘 목표 정수주 계산안</h2>
+<p class="muted">현재 동적 목표비중을 1주 단위로 새로 환산한 참고표다. 실제 forward 계좌는 위 paper 포트폴리오를 기준으로 이어진다.</p>
+<div class="scroll">{_html_table(plan_html)}</div>
+<p><b>새 계좌 가정 잔여 현금:</b> {cash:,.0f}원 ({cash/capital:.1%}) · <b>초기 주문 예상 토스 수수료:</b> {execution.total_commission:,}원</p>
 </section>
 
 <section class="card">
