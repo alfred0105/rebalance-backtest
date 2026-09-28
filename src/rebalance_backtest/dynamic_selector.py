@@ -696,6 +696,273 @@ def select_dynamic_universe(
     return new_state, active
 
 
+def _execution_plan_for_allocation(
+    scored: pd.DataFrame,
+    allocation: dict[str, Any],
+    config: DynamicSelectionConfig,
+):
+    from .execution_plan import build_execution_plan
+
+    rows = _row_map(scored)
+    weights = {
+        str(ticker): float(weight)
+        for ticker, weight in allocation.get("ideal_target_weights", {}).items()
+        if float(weight) > 0
+    }
+    prices = {
+        ticker: _finite(rows[ticker].get("price_listing"), 0.0)
+        for ticker in weights
+        if ticker in rows
+    }
+    names = {
+        ticker: str(rows[ticker].get("name", ticker))
+        for ticker in weights
+        if ticker in rows
+    }
+    return build_execution_plan(
+        weights,
+        prices,
+        names,
+        config.execution_capital,
+        max_overweight_pp=config.max_initial_overweight_pp,
+    )
+
+
+def _nonexecuted_satellites(
+    active: dict[str, Any],
+    allocation: dict[str, Any],
+    plan,
+    config: DynamicSelectionConfig,
+) -> list[tuple[str, str]]:
+    if plan.positions.empty:
+        return []
+    positions = plan.positions.set_index("ticker")
+    targets = allocation.get("ideal_target_weights", {})
+    output: list[tuple[str, str]] = []
+    for bucket in ("aggressive", "defensive"):
+        for ticker in active.get(bucket, []):
+            if ticker in {config.market_ticker, config.safe_ticker}:
+                continue
+            target = float(targets.get(ticker, 0.0))
+            if target <= 0:
+                output.append((bucket, ticker))
+                continue
+            if ticker not in positions.index:
+                output.append((bucket, ticker))
+                continue
+            if int(positions.loc[ticker, "shares"]) <= 0:
+                output.append((bucket, ticker))
+    return output
+
+
+def _remove_holding(
+    holdings: list[dict[str, Any]],
+    ticker: str,
+) -> list[dict[str, Any]]:
+    return [item for item in holdings if str(item.get("ticker")) != ticker]
+
+
+def _candidate_trial_is_fully_executable(
+    scored: pd.DataFrame,
+    active: dict[str, Any],
+    *,
+    config: DynamicSelectionConfig,
+    previous_state: dict[str, Any] | None,
+) -> tuple[bool, dict[str, Any]]:
+    allocation = build_dynamic_target_allocation(
+        scored,
+        active,
+        config=config,
+        previous_state=previous_state,
+    )
+    plan = _execution_plan_for_allocation(scored, allocation, config)
+    failures = _nonexecuted_satellites(active, allocation, plan, config)
+    return not failures, allocation
+
+
+def reconcile_active_universe_for_execution(
+    scored: pd.DataFrame,
+    state: dict[str, Any],
+    active: dict[str, Any],
+    allocation: dict[str, Any],
+    *,
+    as_of: pd.Timestamp,
+    config: DynamicSelectionConfig,
+    previous_state: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Align selected satellites with what a small whole-share account can hold.
+
+    Core market and SAFE sleeves are never removed here. Satellites that receive
+    zero shares under the post-risk allocation are removed immediately. Vacant
+    slots are refilled only when a trial candidate leaves *all* selected
+    satellites executable. If no candidate works, the slot stays empty.
+    """
+    rows = _row_map(scored)
+    aggressive_pool = _deduped_pool(scored, "aggressive", config)
+    defensive_pool = _deduped_pool(scored, "defensive", config)
+    blocked_this_run: set[str] = set()
+    events = list(active.get("events") or [])
+
+    max_passes = config.aggressive_slots + config.defensive_slots + 3
+    for _ in range(max_passes):
+        plan = _execution_plan_for_allocation(scored, allocation, config)
+        failures = _nonexecuted_satellites(active, allocation, plan, config)
+        if not failures:
+            break
+
+        removed_by_bucket: dict[str, list[str]] = {
+            "aggressive": [],
+            "defensive": [],
+        }
+        targets = allocation.get("ideal_target_weights", {})
+        position_map = (
+            plan.positions.set_index("ticker")
+            if not plan.positions.empty
+            else pd.DataFrame()
+        )
+
+        for bucket, ticker in failures:
+            blocked_this_run.add(ticker)
+            removed_by_bucket[bucket].append(ticker)
+            holding = next(
+                (
+                    item
+                    for item in state.get(bucket, [])
+                    if str(item.get("ticker")) == ticker
+                ),
+                None,
+            )
+            target_weight = float(targets.get(ticker, 0.0))
+            price = _finite(rows.get(ticker, pd.Series(dtype=float)).get("price_listing"), 0.0)
+            one_share_weight = (
+                price / config.execution_capital
+                if config.execution_capital > 0 and price > 0
+                else float("nan")
+            )
+            blocked_flag = False
+            if (
+                not position_map.empty
+                and ticker in position_map.index
+                and "blocked_by_size" in position_map.columns
+            ):
+                blocked_flag = bool(position_map.loc[ticker, "blocked_by_size"])
+
+            state[bucket] = _remove_holding(
+                list(state.get(bucket) or []),
+                ticker,
+            )
+            active[bucket] = [
+                item for item in active.get(bucket, []) if str(item) != ticker
+            ]
+            events.append(
+                {
+                    "action": "EXECUTION_CONSTRAINT_EXIT",
+                    "bucket": bucket,
+                    "ticker": ticker,
+                    "name": (
+                        holding.get("name", ticker)
+                        if holding is not None
+                        else str(rows.get(ticker, pd.Series(dtype=float)).get("name", ticker))
+                    ),
+                    "target_weight": target_weight,
+                    "one_share_weight": one_share_weight,
+                    "blocked_by_size": blocked_flag,
+                    "reason": "ZERO_WHOLE_SHARES_AFTER_RISK_ALLOCATION",
+                }
+            )
+
+        # Recompute after all zero-share exits. Fewer satellites receive larger
+        # per-slot weights, which can make the remaining holdings executable.
+        allocation = build_dynamic_target_allocation(
+            scored,
+            active,
+            config=config,
+            previous_state=previous_state,
+        )
+
+        for bucket in ("aggressive", "defensive"):
+            slot_limit = (
+                config.aggressive_slots
+                if bucket == "aggressive"
+                else config.defensive_slots
+            )
+            pool = aggressive_pool if bucket == "aggressive" else defensive_pool
+
+            while len(active.get(bucket, [])) < slot_limit:
+                filtered_pool = pool.loc[
+                    ~pool["ticker"].astype(str).isin(blocked_this_run)
+                ].copy()
+                candidates = _eligible_candidates(
+                    filtered_pool,
+                    holdings=list(state.get(bucket) or []),
+                    cooldowns=dict(state.get("cooldowns") or {}),
+                    as_of=as_of,
+                    config=config,
+                    bucket=bucket,
+                )
+                if not candidates:
+                    break
+
+                accepted = False
+                for row in candidates:
+                    ticker = str(row["ticker"])
+                    trial_active = {
+                        **active,
+                        "aggressive": list(active.get("aggressive") or []),
+                        "defensive": list(active.get("defensive") or []),
+                        "events": list(events),
+                    }
+                    trial_active[bucket].append(ticker)
+                    executable, trial_allocation = _candidate_trial_is_fully_executable(
+                        scored,
+                        trial_active,
+                        config=config,
+                        previous_state=previous_state,
+                    )
+                    if not executable:
+                        blocked_this_run.add(ticker)
+                        continue
+
+                    holding = _holding_from_row(row, as_of)
+                    state[bucket] = list(state.get(bucket) or []) + [holding]
+                    active[bucket] = list(active.get(bucket) or []) + [ticker]
+                    allocation = trial_allocation
+                    events.append(
+                        {
+                            "action": "EXECUTION_CONSTRAINT_REPLACE",
+                            "bucket": bucket,
+                            "ticker": ticker,
+                            "name": holding["name"],
+                            "theme": holding["theme"],
+                            "defensive_role": holding["defensive_role"],
+                            "score": holding["last_score"],
+                            "reason": "WHOLE_SHARE_EXECUTABLE_REPLACEMENT",
+                        }
+                    )
+                    accepted = True
+                    break
+
+                if not accepted:
+                    break
+
+        # Re-evaluate the full set after refill attempts.
+        allocation = build_dynamic_target_allocation(
+            scored,
+            active,
+            config=config,
+            previous_state=previous_state,
+        )
+
+    active["events"] = events
+    active["aggressive"] = [
+        str(item["ticker"]) for item in state.get("aggressive", [])
+    ]
+    active["defensive"] = [
+        str(item["ticker"]) for item in state.get("defensive", [])
+    ]
+    return state, active, allocation
+
+
 def _peak_cap(drawdown: float) -> float:
     if drawdown <= -0.10:
         return 0.35
