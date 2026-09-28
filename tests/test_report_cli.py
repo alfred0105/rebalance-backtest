@@ -53,3 +53,33 @@ def test_weights_chart_handles_tiny_negative_cash():
 
     assert isinstance(uri, str)
     assert uri.startswith("data:image/png;base64,")
+
+
+def test_paper_portfolio_table_handles_cash_without_int_dtype_error():
+    from rebalance_backtest.report_cli import _paper_portfolio_table
+
+    frame = pd.DataFrame(
+        [
+            {
+                "ticker": "069500.KS",
+                "name": "KODEX 200",
+                "shares": 1,
+                "price": 111_400,
+                "value": 111_400,
+                "weight": 0.3713,
+            },
+            {
+                "ticker": "CASH",
+                "name": "현금",
+                "shares": 0,
+                "price": 1,
+                "value": 188_600,
+                "weight": 0.6287,
+            },
+        ]
+    )
+
+    shown = _paper_portfolio_table(frame)
+
+    assert shown.loc[shown["종목명"] == "현금", "수량"].iloc[0] == ""
+    assert shown.loc[shown["종목명"] == "KODEX 200", "수량"].iloc[0] == 1
