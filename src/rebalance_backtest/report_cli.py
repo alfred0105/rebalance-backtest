@@ -47,6 +47,8 @@ ACTION_LABELS = {
     "FILL_SLOT": "신규 편입",
     "EMERGENCY_EXIT": "긴급 퇴출",
     "MONTHLY_REPLACE": "월간 교체",
+    "EXECUTION_CONSTRAINT_EXIT": "정수주 제약 퇴출",
+    "EXECUTION_CONSTRAINT_REPLACE": "정수주 제약 대체편입",
 }
 
 RISK_STATE_LABELS = {
@@ -97,6 +99,10 @@ def _translate_reason(value: object) -> str:
         return "고점 대비 큰 폭 하락과 음의 모멘텀 동시 발생"
     if text == "MARKET_EMERGENCY":
         return "시장 비상상태"
+    if text == "ZERO_WHOLE_SHARES_AFTER_RISK_ALLOCATION":
+        return "위험상태 반영 후 목표비중에서 실제 정수주가 0주"
+    if text == "WHOLE_SHARE_EXECUTABLE_REPLACEMENT":
+        return "30만원 정수주 계좌에서 실제 보유 가능한 대체 종목"
     return text
 
 
