@@ -48,12 +48,23 @@ def build_execution_plan(
 
     shares = np.floor(capital * target / px).astype(int)
 
+    def overweight_limit(target_weight: float) -> float:
+        # Small accounts need a wider tolerance for large core/safe sleeves:
+        # one KRX ETF share can easily represent 35-40% of a 300k account.
+        # Keep the strict 4%p guard for satellite sleeves, but allow up to
+        # 10%p for sleeves that intentionally target at least 25%.
+        if target_weight >= 0.25:
+            return max(max_overweight_pp, 0.10)
+        return max_overweight_pp
+
     blocked: set[str] = set()
     for ticker in shares.index:
         first_share_weight = float(px[ticker] / capital)
+        allowed_overweight = overweight_limit(float(target[ticker]))
         if (
             shares[ticker] == 0
-            and first_share_weight > float(target[ticker]) + max_overweight_pp
+            and first_share_weight
+            > float(target[ticker]) + allowed_overweight
         ):
             blocked.add(str(ticker))
 
@@ -104,7 +115,8 @@ def build_execution_plan(
             if str(ticker) in blocked and shares[ticker] == 0:
                 continue
             trial_weight = float((shares[ticker] + 1) * px[ticker] / capital)
-            if trial_weight > float(target[ticker]) + max_overweight_pp:
+            allowed_overweight = overweight_limit(float(target[ticker]))
+            if trial_weight > float(target[ticker]) + allowed_overweight:
                 continue
             shares[ticker] += 1
             trial_error = objective(shares)
