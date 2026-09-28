@@ -3,6 +3,7 @@ import pandas as pd
 from rebalance_backtest.dynamic_selector import (
     DynamicSelectionConfig,
     build_dynamic_target_allocation,
+    reconcile_active_universe_for_execution,
     select_dynamic_universe,
 )
 
@@ -419,3 +420,243 @@ def test_deep_drawdown_old_state_enters_recovery_instead_of_full_risk():
 
     assert allocation["risk_state"] == "RECOVERY_2"
     assert allocation["stock_target"] <= 0.65
+
+
+def test_post_risk_reconciliation_removes_zero_share_philadelphia_semiconductor():
+    scored = pd.DataFrame(
+        [
+            _row(
+                "069500.KS",
+                "KODEX 200",
+                "EQUITY",
+                0.60,
+                0,
+                momentum=0.59,
+                r5=0.01,
+                r20=0.03,
+                peak=-0.16,
+                theme="BROAD_MARKET",
+                price=111_400.0,
+            ),
+            _row(
+                "091170.KS",
+                "KODEX 은행",
+                "EQUITY",
+                0.90,
+                1,
+                momentum=0.88,
+                theme="BANK_FINANCE",
+                price=16_485.0,
+            ),
+            _row(
+                "381180.KS",
+                "TIGER 미국필라델피아반도체나스닥",
+                "EQUITY",
+                0.85,
+                2,
+                momentum=0.81,
+                theme="SEMICONDUCTOR",
+                price=44_685.0,
+            ),
+            _row(
+                "458730.KS",
+                "TIGER 미국배당다우존스",
+                "EQUITY",
+                0.80,
+                3,
+                momentum=0.48,
+                theme="DIVIDEND",
+                price=14_375.0,
+            ),
+            _row(
+                "CHEAP.KS",
+                "Cheap Healthcare",
+                "EQUITY",
+                0.70,
+                4,
+                momentum=0.40,
+                theme="BIO_HEALTHCARE",
+                price=12_000.0,
+            ),
+            _row(
+                "153130.KS",
+                "KODEX 단기채권",
+                "DEFENSIVE",
+                0.20,
+                20,
+                momentum=0.0,
+                corr=0.0,
+                vol=0.02,
+                theme="BOND",
+                role="SAFE",
+                price=113_207.0,
+            ),
+        ]
+    )
+    config = DynamicSelectionConfig(
+        aggressive_slots=3,
+        defensive_slots=0,
+        execution_capital=300_000.0,
+        max_initial_overweight_pp=0.04,
+    )
+    previous = {
+        "version": 2,
+        "last_run_date": "2026-09-27",
+        "last_selection_month": "2026-08",
+        "aggressive": [],
+        "defensive": [],
+        "cooldowns": {},
+        "risk_state": "RECOVERY_2",
+        "risk_state_counter": 0,
+    }
+    as_of = pd.Timestamp("2026-09-28")
+
+    state, active = select_dynamic_universe(
+        scored,
+        previous_state=previous,
+        as_of=as_of,
+        config=config,
+    )
+    assert active["aggressive"] == [
+        "091170.KS",
+        "381180.KS",
+        "458730.KS",
+    ]
+
+    allocation = build_dynamic_target_allocation(
+        scored,
+        active,
+        config=config,
+        previous_state=previous,
+    )
+    assert allocation["risk_state"] == "RECOVERY_2"
+    assert abs(allocation["ideal_target_weights"]["381180.KS"] - (0.325 / 3)) < 1e-12
+
+    state, active, allocation = reconcile_active_universe_for_execution(
+        scored,
+        state,
+        active,
+        allocation,
+        as_of=as_of,
+        config=config,
+        previous_state=previous,
+    )
+
+    assert "381180.KS" not in active["aggressive"]
+    assert "CHEAP.KS" in active["aggressive"]
+    assert any(
+        event["action"] == "EXECUTION_CONSTRAINT_EXIT"
+        and event["ticker"] == "381180.KS"
+        for event in active["events"]
+    )
+    assert any(
+        event["action"] == "EXECUTION_CONSTRAINT_REPLACE"
+        and event["ticker"] == "CHEAP.KS"
+        for event in active["events"]
+    )
+
+    from rebalance_backtest.execution_plan import build_execution_plan
+
+    prices = dict(
+        zip(scored["ticker"], scored["price_listing"])
+    )
+    names = dict(zip(scored["ticker"], scored["name"]))
+    plan = build_execution_plan(
+        allocation["ideal_target_weights"],
+        prices,
+        names,
+        300_000.0,
+        max_overweight_pp=0.04,
+    ).positions.set_index("ticker")
+
+    for ticker in active["aggressive"]:
+        assert int(plan.loc[ticker, "shares"]) >= 1
+
+
+def test_execution_reconciliation_allows_fewer_slots_when_no_replacement_works():
+    scored = pd.DataFrame(
+        [
+            _row(
+                "069500.KS",
+                "KODEX 200",
+                "EQUITY",
+                0.60,
+                0,
+                momentum=0.59,
+                r20=0.03,
+                peak=-0.16,
+                theme="BROAD_MARKET",
+                price=111_400.0,
+            ),
+            _row(
+                "091170.KS",
+                "KODEX 은행",
+                "EQUITY",
+                0.90,
+                1,
+                theme="BANK_FINANCE",
+                price=16_485.0,
+            ),
+            _row(
+                "381180.KS",
+                "TIGER 미국필라델피아반도체나스닥",
+                "EQUITY",
+                0.85,
+                2,
+                theme="SEMICONDUCTOR",
+                price=44_685.0,
+            ),
+            _row(
+                "153130.KS",
+                "KODEX 단기채권",
+                "DEFENSIVE",
+                0.20,
+                20,
+                momentum=0.0,
+                corr=0.0,
+                vol=0.02,
+                theme="BOND",
+                role="SAFE",
+                price=113_207.0,
+            ),
+        ]
+    )
+    config = DynamicSelectionConfig(
+        aggressive_slots=2,
+        defensive_slots=0,
+        execution_capital=300_000.0,
+    )
+    previous = {
+        "version": 2,
+        "last_selection_month": "2026-08",
+        "aggressive": [],
+        "defensive": [],
+        "cooldowns": {},
+        "risk_state": "RECOVERY_1",
+        "risk_state_counter": 0,
+    }
+    as_of = pd.Timestamp("2026-09-28")
+    state, active = select_dynamic_universe(
+        scored,
+        previous_state=previous,
+        as_of=as_of,
+        config=config,
+    )
+    allocation = build_dynamic_target_allocation(
+        scored,
+        active,
+        config=config,
+        previous_state=previous,
+    )
+    state, active, allocation = reconcile_active_universe_for_execution(
+        scored,
+        state,
+        active,
+        allocation,
+        as_of=as_of,
+        config=config,
+        previous_state=previous,
+    )
+
+    assert len(active["aggressive"]) <= config.aggressive_slots
+    assert "381180.KS" not in active["aggressive"]
