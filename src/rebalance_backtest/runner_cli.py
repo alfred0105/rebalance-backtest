@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -30,6 +31,15 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip the legacy 12-preset sweep; run discovery + rotation + hedge only.",
     )
+    p.add_argument(
+        "--clean-start",
+        action="store_true",
+        help=(
+            "Reset only dynamic selector / forward paper state and rebuild the "
+            "300k account from the current v0.11 rules. Historical backtest "
+            "outputs and source files are preserved."
+        ),
+    )
     return p.parse_args()
 
 
@@ -54,6 +64,37 @@ def _run_module(module: str, args: list[str]) -> None:
         [sys.executable, "-m", module, *args],
         check=True,
     )
+
+
+def _reset_forward_state(root: Path = Path(".")) -> list[Path]:
+    files = [
+        root / "universes/dynamic_selector_state.json",
+        root / "universes/active_universe.json",
+        root / "runs/paper_account_state.json",
+        root / "runs/paper_account_history.csv",
+        root / "runs/paper_account_trades.csv",
+        root / "runs/latest_live_portfolio.csv",
+        root / "runs/latest_execution_plan.csv",
+        root / "runs/latest_trade_log.csv",
+        root / "runs/latest_dashboard.html",
+    ]
+    directories = [
+        root / "universes/daily_candidates",
+        root / "universes/daily_active",
+        root / "runs/paper_portfolios",
+        root / "runs/daily_execution",
+    ]
+
+    removed: list[Path] = []
+    for path in files:
+        if path.exists():
+            path.unlink()
+            removed.append(path)
+    for path in directories:
+        if path.exists():
+            shutil.rmtree(path)
+            removed.append(path)
+    return removed
 
 
 def _publish(*, include_sweep: bool) -> None:
@@ -120,20 +161,33 @@ def main() -> None:
     args = _parse_args()
     common = _common_args(args)
 
+    if args.clean_start:
+        removed = _reset_forward_state()
+        finish_status(
+            "[reset] forward selector/paper state cleared"
+            + (f" | removed={len(removed)}" if removed else " | already clean")
+        )
+
     if args.quick:
         live_status("[1/6] discovering ETF candidates")
         _run_module("rebalance_backtest.universe_cli", [])
 
         live_status("[2/6] updating dynamic ETF universe")
+        dynamic_args = ["--capital", str(args.initial_capital)]
+        if args.clean_start:
+            dynamic_args.append("--reset-state")
         _run_module(
             "rebalance_backtest.dynamic_cli",
-            ["--capital", str(args.initial_capital)],
+            dynamic_args,
         )
 
         live_status("[3/6] advancing persistent 300k paper account")
+        paper_args = ["--initial-capital", str(args.initial_capital)]
+        if args.clean_start:
+            paper_args.append("--reset-state")
         _run_module(
             "rebalance_backtest.paper_cli",
-            ["--initial-capital", str(args.initial_capital)],
+            paper_args,
         )
 
         live_status("[4/6] starting broad-signal rotation")
@@ -152,15 +206,21 @@ def main() -> None:
         _run_module("rebalance_backtest.universe_cli", [])
 
         live_status("[2/7] updating dynamic ETF universe")
+        dynamic_args = ["--capital", str(args.initial_capital)]
+        if args.clean_start:
+            dynamic_args.append("--reset-state")
         _run_module(
             "rebalance_backtest.dynamic_cli",
-            ["--capital", str(args.initial_capital)],
+            dynamic_args,
         )
 
         live_status("[3/7] advancing persistent 300k paper account")
+        paper_args = ["--initial-capital", str(args.initial_capital)]
+        if args.clean_start:
+            paper_args.append("--reset-state")
         _run_module(
             "rebalance_backtest.paper_cli",
-            ["--initial-capital", str(args.initial_capital)],
+            paper_args,
         )
 
         live_status("[4/7] starting broad-signal rotation")
