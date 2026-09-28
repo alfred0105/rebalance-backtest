@@ -67,6 +67,7 @@ def _publish(*, include_sweep: bool) -> None:
         Path("runs/paper_account_state.json"),
         Path("runs/paper_account_history.csv"),
         Path("runs/paper_account_trades.csv"),
+        Path("runs/paper_portfolios"),
         Path("runs/daily_execution"),
         Path("runs/latest_report.txt"),
         Path("runs/latest_hedge_report.txt"),
