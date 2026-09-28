@@ -11,6 +11,7 @@ from .dynamic_selector import (
     DynamicSelectionConfig,
     build_dynamic_target_allocation,
     load_state,
+    reconcile_active_universe_for_execution,
     save_state,
     select_dynamic_universe,
 )
@@ -156,6 +157,15 @@ def main() -> None:
         config=config,
         previous_state=previous,
     )
+    state, active, allocation = reconcile_active_universe_for_execution(
+        scored,
+        state,
+        active,
+        allocation,
+        as_of=as_of,
+        config=config,
+        previous_state=previous,
+    )
     active["allocation"] = allocation
     state["risk_state"] = allocation["risk_state"]
     state["risk_state_counter"] = allocation["risk_state_counter"]
@@ -258,8 +268,10 @@ def main() -> None:
         "- Correlation clusters and economic-theme limits prevent duplicate exposures.",
         "- Cooldown expiry alone is insufficient; re-entry also requires positive momentum and 5d recovery.",
         "- SAFE / HEDGE / DIVERSIFIER roles have separate portfolio risk budgets.",
-        "- Small-capital affordability is checked before a new ETF consumes a slot.",
-        "- Target weights are ideal research allocations; whole-share execution is handled separately.",
+        "- Post-risk whole-share reconciliation removes satellites that would execute as zero shares.",
+        "- Vacant slots refill only when the replacement keeps every selected satellite executable.",
+        "- If no executable replacement exists, the strategy intentionally runs fewer satellite slots.",
+        "- Target weights are reconciled with whole-share execution before active state is saved.",
         "- Daily scored/active snapshots are accumulated for forward walk-forward validation.",
     ]
     report_text = "\n".join(report) + "\n"
