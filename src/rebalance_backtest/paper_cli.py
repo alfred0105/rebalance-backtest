@@ -18,6 +18,11 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--active", default="universes/active_universe.json")
     p.add_argument("--snapshot", default=None)
     p.add_argument("--state", default="runs/paper_account_state.json")
+    p.add_argument(
+        "--reset-state",
+        action="store_true",
+        help="Ignore any prior paper-account state and start from initial capital.",
+    )
     return p.parse_args()
 
 
@@ -63,9 +68,13 @@ def main() -> None:
 
     state_path = Path(args.state)
     previous = (
-        json.loads(state_path.read_text(encoding="utf-8"))
-        if state_path.exists()
-        else empty_paper_state(args.initial_capital)
+        empty_paper_state(args.initial_capital)
+        if args.reset_state
+        else (
+            json.loads(state_path.read_text(encoding="utf-8"))
+            if state_path.exists()
+            else empty_paper_state(args.initial_capital)
+        )
     )
 
     live_status("[paper] 동적 목표를 실제 정수주 paper 계좌에 반영")
