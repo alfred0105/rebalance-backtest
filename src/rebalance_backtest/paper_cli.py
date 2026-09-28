@@ -98,6 +98,9 @@ def main() -> None:
     }])
     live_plan = pd.concat([live_plan, cash_row], ignore_index=True)
     live_plan.to_csv("runs/latest_live_portfolio.csv", index=False)
+    portfolio_dir = Path("runs/paper_portfolios")
+    portfolio_dir.mkdir(parents=True, exist_ok=True)
+    live_plan.to_csv(portfolio_dir / f"{as_of}.csv", index=False)
 
     history_row = pd.DataFrame([{
         "date": as_of,
