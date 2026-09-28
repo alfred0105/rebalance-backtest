@@ -63,6 +63,10 @@ def _publish(*, include_sweep: bool) -> None:
         Path("runs/latest_dashboard.html"),
         Path("runs/latest_execution_plan.csv"),
         Path("runs/latest_trade_log.csv"),
+        Path("runs/latest_live_portfolio.csv"),
+        Path("runs/paper_account_state.json"),
+        Path("runs/paper_account_history.csv"),
+        Path("runs/paper_account_trades.csv"),
         Path("runs/daily_execution"),
         Path("runs/latest_report.txt"),
         Path("runs/latest_hedge_report.txt"),
@@ -116,22 +120,28 @@ def main() -> None:
     common = _common_args(args)
 
     if args.quick:
-        live_status("[1/5] discovering ETF candidates")
+        live_status("[1/7] discovering ETF candidates")
         _run_module("rebalance_backtest.universe_cli", [])
 
-        live_status("[2/5] updating dynamic ETF universe")
+        live_status("[2/7] updating dynamic ETF universe")
         _run_module(
             "rebalance_backtest.dynamic_cli",
             ["--capital", str(args.initial_capital)],
         )
 
-        live_status("[3/5] starting broad-signal rotation")
+        live_status("[3/6] advancing persistent 300k paper account")
+        _run_module(
+            "rebalance_backtest.paper_cli",
+            ["--initial-capital", str(args.initial_capital)],
+        )
+
+        live_status("[4/6] starting broad-signal rotation")
         _run_module("rebalance_backtest.rotation_cli", common)
 
-        live_status("[4/5] starting peak + hedge experiment")
+        live_status("[5/6] starting peak + hedge experiment")
         _run_module("rebalance_backtest.hedge_sweep_cli", common)
 
-        live_status("[5/5] building terminal + HTML execution dashboard")
+        live_status("[6/6] building terminal + HTML execution dashboard")
         _run_module(
             "rebalance_backtest.report_cli",
             ["--initial-capital", str(args.initial_capital)],
@@ -146,16 +156,22 @@ def main() -> None:
             ["--capital", str(args.initial_capital)],
         )
 
-        live_status("[3/6] starting broad-signal rotation")
+        live_status("[3/7] advancing persistent 300k paper account")
+        _run_module(
+            "rebalance_backtest.paper_cli",
+            ["--initial-capital", str(args.initial_capital)],
+        )
+
+        live_status("[4/7] starting broad-signal rotation")
         _run_module("rebalance_backtest.rotation_cli", common)
 
-        live_status("[4/6] starting parameter sweep")
+        live_status("[5/7] starting parameter sweep")
         _run_module("rebalance_backtest.sweep_cli", common)
 
-        live_status("[5/6] starting peak + hedge experiment")
+        live_status("[6/7] starting peak + hedge experiment")
         _run_module("rebalance_backtest.hedge_sweep_cli", common)
 
-        live_status("[6/6] building terminal + HTML execution dashboard")
+        live_status("[7/7] building terminal + HTML execution dashboard")
         _run_module(
             "rebalance_backtest.report_cli",
             ["--initial-capital", str(args.initial_capital)],
