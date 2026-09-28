@@ -583,8 +583,8 @@ def test_execution_reconciliation_allows_fewer_slots_when_no_replacement_works()
                 0.60,
                 0,
                 momentum=0.59,
-                r20=0.03,
-                peak=-0.16,
+                r20=-0.02,
+                peak=-0.10,
                 theme="BROAD_MARKET",
                 price=111_400.0,
             ),
@@ -632,7 +632,7 @@ def test_execution_reconciliation_allows_fewer_slots_when_no_replacement_works()
         "aggressive": [],
         "defensive": [],
         "cooldowns": {},
-        "risk_state": "RECOVERY_1",
+        "risk_state": "NORMAL",
         "risk_state_counter": 0,
     }
     as_of = pd.Timestamp("2026-09-28")
