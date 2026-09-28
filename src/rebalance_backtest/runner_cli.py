@@ -120,10 +120,10 @@ def main() -> None:
     common = _common_args(args)
 
     if args.quick:
-        live_status("[1/7] discovering ETF candidates")
+        live_status("[1/6] discovering ETF candidates")
         _run_module("rebalance_backtest.universe_cli", [])
 
-        live_status("[2/7] updating dynamic ETF universe")
+        live_status("[2/6] updating dynamic ETF universe")
         _run_module(
             "rebalance_backtest.dynamic_cli",
             ["--capital", str(args.initial_capital)],
@@ -147,10 +147,10 @@ def main() -> None:
             ["--initial-capital", str(args.initial_capital)],
         )
     else:
-        live_status("[1/6] discovering ETF candidates")
+        live_status("[1/7] discovering ETF candidates")
         _run_module("rebalance_backtest.universe_cli", [])
 
-        live_status("[2/6] updating dynamic ETF universe")
+        live_status("[2/7] updating dynamic ETF universe")
         _run_module(
             "rebalance_backtest.dynamic_cli",
             ["--capital", str(args.initial_capital)],
